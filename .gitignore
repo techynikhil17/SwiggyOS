@@ -1,0 +1,5 @@
+#IDE
+.claude/
+
+#Environment
+.env
