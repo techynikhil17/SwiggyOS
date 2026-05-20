@@ -1,5 +1,7 @@
 #IDE
 .claude/
-
+venv
+node_modules/
+__pycache__/
 #Environment
 .env
