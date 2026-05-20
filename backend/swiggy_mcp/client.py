@@ -4,7 +4,7 @@ from collections.abc import Callable
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 
-from backend.auth.token_store import TokenExpiredError
+from auth.token_store import TokenExpiredError
 
 
 class MCPServerError(Exception):

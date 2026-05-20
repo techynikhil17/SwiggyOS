@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator
+import os
 from typing import Any
 
-import anthropic
+from google import genai
+from google.genai import types
 
-from backend.agent.tools import ALL_TOOLS
-from backend.auth.token_store import TokenExpiredError
-from backend.mcp.client import MCPServerError, SwiggyMCPClient
+from agent.tools import ALL_TOOLS
+from auth.token_store import TokenExpiredError
+from swiggy_mcp.client import MCPServerError, SwiggyMCPClient
 
-MODEL = "claude-sonnet-4-6"
+MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
-# Tools that place real orders — Claude must confirm with the user first.
+# Tools that place real orders — Gemini must confirm with the user first.
 _CONFIRMATION_REQUIRED = {"place_food_order", "im_checkout", "book_table"}
 
 # After a 5xx on these tools, check the corresponding "get orders" tool
@@ -22,9 +23,37 @@ _IDEMPOTENCY_CHECKS: dict[str, str] = {
     "im_checkout": "im_get_orders",
 }
 
+# JSON Schema type name → google.genai Schema type string
+_TYPE_MAP = {
+    "string": "STRING",
+    "integer": "INTEGER",
+    "number": "NUMBER",
+    "boolean": "BOOLEAN",
+    "array": "ARRAY",
+    "object": "OBJECT",
+}
+
+
+def _to_gemini_schema(schema: dict) -> types.Schema:
+    """Recursively convert a JSON Schema dict to google.genai types.Schema."""
+    kwargs: dict[str, Any] = {}
+    if "type" in schema:
+        kwargs["type"] = _TYPE_MAP.get(schema["type"], schema["type"].upper())
+    if "description" in schema:
+        kwargs["description"] = schema["description"]
+    if "properties" in schema:
+        kwargs["properties"] = {k: _to_gemini_schema(v) for k, v in schema["properties"].items()}
+    if "required" in schema:
+        kwargs["required"] = schema["required"]
+    if "items" in schema:
+        kwargs["items"] = _to_gemini_schema(schema["items"])
+    if "enum" in schema:
+        kwargs["enum"] = schema["enum"]
+    return types.Schema(**kwargs)
+
 
 class SwiggyOSAgent:
-    """Agentic loop that talks to Claude and dispatches Swiggy MCP tool calls.
+    """Agentic loop that talks to Gemini and dispatches Swiggy MCP tool calls.
 
     Usage::
 
@@ -38,9 +67,23 @@ class SwiggyOSAgent:
         mcp_client: SwiggyMCPClient,
         user_context: dict[str, Any],
     ) -> None:
-        self._claude = anthropic.AsyncAnthropic()
+        self._client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
         self._mcp = mcp_client
         self._user_context = user_context
+
+        declarations = [
+            types.FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters=_to_gemini_schema(t["input_schema"]),
+            )
+            for t in ALL_TOOLS
+        ]
+
+        self._config = types.GenerateContentConfig(
+            system_instruction=self._system_prompt(),
+            tools=[types.Tool(function_declarations=declarations)],
+        )
 
     # ── Public interface ──────────────────────────────────────────────────
 
@@ -48,66 +91,77 @@ class SwiggyOSAgent:
         self,
         user_message: str,
         conversation_history: list[dict] | None = None,
-    ) -> AsyncGenerator[str, None]:
+    ):
         """Async generator that streams text chunks from the agent loop.
 
-        Yields text as Claude produces it.  Internally handles multiple
-        tool-call rounds until Claude returns stop_reason == 'end_turn'.
+        Streams text as Gemini produces it.  Internally handles multiple
+        tool-call rounds until Gemini returns a final text-only response.
 
         Raises:
             TokenExpiredError: propagated immediately — caller must trigger re-auth.
         """
-        messages: list[dict] = list(conversation_history or [])
-        messages.append({"role": "user", "content": user_message})
+        contents = self._convert_history(conversation_history or [])
+        contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
 
         while True:
-            text_yielded_this_round = False
+            text_buffer: list[str] = []
+            function_calls: list = []
+            seen_calls: set[tuple] = set()
 
-            async with self._claude.messages.stream(
+            async for chunk in await self._client.aio.models.generate_content_stream(
                 model=MODEL,
-                max_tokens=4096,
-                system=self._system_prompt(),
-                tools=ALL_TOOLS,
-                messages=messages,
-            ) as stream:
-                async for chunk in stream.text_stream:
-                    yield chunk
-                    text_yielded_this_round = True
+                contents=contents,
+                config=self._config,
+            ):
+                # Yield text chunks as they arrive
+                try:
+                    if chunk.text:
+                        yield chunk.text
+                        text_buffer.append(chunk.text)
+                except (ValueError, AttributeError):
+                    pass
 
-                response = await stream.get_final_message()
+                # Collect function calls — they arrive as complete parts
+                if chunk.candidates:
+                    for part in chunk.candidates[0].content.parts:
+                        if part.function_call and part.function_call.name:
+                            key = (part.function_call.name, str(dict(part.function_call.args)))
+                            if key not in seen_calls:
+                                seen_calls.add(key)
+                                function_calls.append(part.function_call)
 
-            if response.stop_reason != "tool_use":
+            if not function_calls:
                 break
 
-            # ── Process tool calls ────────────────────────────────────────
-            messages.append({"role": "assistant", "content": response.content})
+            # ── Build model Content for history from streamed data ────────
+            model_parts: list[types.Part] = []
+            if text_buffer:
+                model_parts.append(types.Part(text="".join(text_buffer)))
+            for fc in function_calls:
+                model_parts.append(types.Part(function_call=fc))
+            contents.append(types.Content(role="model", parts=model_parts))
 
-            tool_results: list[dict] = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-
-                result_content = await self._execute_tool(block.name, block.input)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result_content,
-                })
-
-            messages.append({"role": "user", "content": tool_results})
+            # ── Execute tool calls and collect results ────────────────────
+            fn_parts: list[types.Part] = []
+            for fc in function_calls:
+                result = await self._execute_tool(fc.name, dict(fc.args))
+                fn_parts.append(
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fc.name,
+                            response={"result": result},
+                        )
+                    )
+                )
+            contents.append(types.Content(role="user", parts=fn_parts))
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
     async def _execute_tool(self, tool_name: str, tool_input: dict) -> str:
-        """Call the MCP tool and return a string result for the next Claude message.
+        """Call the MCP tool and return a string result for the next Gemini message.
 
-        Confirmation-required tools are blocked here as a safety backstop —
-        the system prompt should have already prompted Claude to ask the user
-        before reaching this point.
-
-        On MCPServerError for ordering tools, we perform an idempotency check
-        (get_food_orders / im_get_orders) before returning the error context,
-        so Claude can inform the user whether the order actually went through.
+        Confirmation-required tools are blocked here as a safety backstop.
+        On MCPServerError for ordering tools, performs an idempotency check.
         """
         if tool_name in _CONFIRMATION_REQUIRED:
             return (
@@ -119,7 +173,7 @@ class SwiggyOSAgent:
         try:
             return await self._mcp.call_tool(tool_name, tool_input)
         except TokenExpiredError:
-            raise  # propagate to caller — triggers re-auth flow
+            raise  # propagate — triggers re-auth flow in the caller
         except MCPServerError as exc:
             return await self._handle_server_error(tool_name, exc)
         except Exception as exc:
@@ -140,8 +194,26 @@ class SwiggyOSAgent:
                     ),
                 })
             except Exception:
-                pass  # idempotency check itself failed — return original error
+                pass
         return json.dumps({"error": str(exc)})
+
+    def _convert_history(self, history: list[dict]) -> list[types.Content]:
+        """Convert simple user/assistant history to google.genai Content format."""
+        result: list[types.Content] = []
+        for msg in history:
+            role = "user" if msg["role"] == "user" else "model"
+            content = msg.get("content", "")
+            if isinstance(content, str) and content:
+                result.append(types.Content(role=role, parts=[types.Part(text=content)]))
+            elif isinstance(content, list):
+                parts = [
+                    types.Part(text=p["text"])
+                    for p in content
+                    if isinstance(p, dict) and p.get("type") == "text" and p.get("text")
+                ]
+                if parts:
+                    result.append(types.Content(role=role, parts=parts))
+        return result
 
     def _system_prompt(self) -> str:
         ctx = self._user_context
