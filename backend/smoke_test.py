@@ -1,12 +1,12 @@
-"""Smoke test for the Gemini orchestrator.
+"""Smoke test for the Groq orchestrator.
 
-Run from inside backend/ with GEMINI_API_KEY set in ../.env:
+Run from inside backend/ with GROQ_API_KEY set in backend/.env:
 
     cd backend
     python smoke_test.py
 
 Does NOT make real Swiggy MCP calls — the MCP client is mocked.
-Verifies Gemini connectivity, tool schema loading, and SSE streaming.
+Verifies Groq connectivity, tool schema loading, and streaming output.
 """
 
 import asyncio
@@ -42,16 +42,16 @@ async def main() -> None:
 
     agent = SwiggyOSAgent(mcp_client=mcp_client, user_context=user_context)
 
-    print("SwiggyOS — Gemini smoke test")
-    print("─" * 40)
+    print("SwiggyOS — Groq smoke test")
+    print("-" * 40)
     print("User : hello, what can you do?")
     print("Agent: ", end="", flush=True)
 
     async for chunk in agent.run("hello, what can you do?"):
         print(chunk, end="", flush=True)
 
-    print("\n" + "─" * 40)
-    print("Gemini is wired correctly.")
+    print("\n" + "-" * 40)
+    print("Groq is wired correctly.")
 
 
 if __name__ == "__main__":
