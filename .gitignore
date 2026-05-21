@@ -3,5 +3,7 @@
 venv
 node_modules/
 __pycache__/
+.playwright-mcp
+PRODUCT.md
 #Environment
 .env
