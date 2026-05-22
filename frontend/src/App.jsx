@@ -117,6 +117,10 @@ export default function App() {
       window.history.replaceState({}, '', '/')
     }
 
+    // TODO: remove DEV_BYPASS before production
+    const DEV_BYPASS = true
+    if (DEV_BYPASS) { setAuthState('authenticated'); return }
+
     getAuthStatus().then(status => {
       if (status.offline) {
         setAuthState('offline')

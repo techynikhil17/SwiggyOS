@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Any
 
+import groq as groq_lib
 from groq import AsyncGroq
 
 from agent.tools import ALL_TOOLS
@@ -49,7 +51,8 @@ class SwiggyOSAgent:
         mcp_client: SwiggyMCPClient,
         user_context: dict[str, Any],
     ) -> None:
-        self._client = AsyncGroq(api_key=os.environ["GROQ_API_KEY"])
+        # max_retries=0 — fail fast on rate limits instead of waiting 30-60s for backoff
+        self._client = AsyncGroq(api_key=os.environ["GROQ_API_KEY"], max_retries=0)
         self._model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         self._mcp = mcp_client
         self._user_context = user_context
@@ -76,13 +79,20 @@ class SwiggyOSAgent:
         ]
 
         while True:
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                tools=_GROQ_TOOLS,
-                tool_choice="auto",
-                stream=False,
-            )
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    tools=_GROQ_TOOLS,
+                    tool_choice="auto",
+                    stream=False,
+                )
+            except groq_lib.RateLimitError:
+                yield "I'm being rate-limited by the AI provider right now. Please wait a moment and try again."
+                break
+            except groq_lib.APIStatusError as exc:
+                yield f"AI provider error ({exc.status_code}). Please try again."
+                break
 
             msg = response.choices[0].message
 
@@ -136,7 +146,12 @@ class SwiggyOSAgent:
             )
 
         try:
-            return await self._mcp.call_tool(tool_name, tool_input)
+            return await asyncio.wait_for(
+                self._mcp.call_tool(tool_name, tool_input),
+                timeout=8.0,
+            )
+        except asyncio.TimeoutError:
+            return json.dumps({"error": f"Tool '{tool_name}' timed out — Swiggy MCP server unreachable"})
         except TokenExpiredError:
             raise  # propagate — triggers re-auth flow in the caller
         except MCPServerError as exc:

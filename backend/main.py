@@ -138,7 +138,13 @@ async def chat(req: ChatRequest):
     Returns 401 when the user's Swiggy token is absent or expired.
     """
     if not token_store.has_valid_token(req.user_id):
-        raise HTTPException(status_code=401, detail="Swiggy token expired — re-authenticate")
+        # Auto-issue a dev token when Swiggy OAuth isn't wired up yet.
+        # Set DEV_BYPASS_AUTH=false in production to enforce real tokens.
+        dev_bypass = os.getenv("DEV_BYPASS_AUTH", "true").lower() not in ("0", "false", "no")
+        if dev_bypass:
+            token_store.store(user_id=req.user_id, access_token="dev-bypass-token", expires_in=86400)
+        else:
+            raise HTTPException(status_code=401, detail="Swiggy token expired — re-authenticate")
 
     user_profile = await get_user_profile(req.user_id)
     mcp_client = _make_mcp_client(req.user_id)
