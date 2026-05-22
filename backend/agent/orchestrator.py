@@ -35,6 +35,57 @@ _GROQ_TOOLS = [
     for t in ALL_TOOLS
 ]
 
+# Domain membership derived from tool name prefixes / suffixes.
+def _tool_domain(name: str) -> str:
+    if name.startswith("im_"):
+        return "im"
+    if name.endswith("_dineout") or name in {
+        "get_restaurant_details", "get_available_slots",
+        "get_booking_status", "get_saved_locations",
+        "dineout_create_cart", "book_table", "dineout_report_error",
+    }:
+        return "dineout"
+    return "food"
+
+_GROQ_TOOLS_BY_DOMAIN: dict[str, list] = {"food": [], "im": [], "dineout": []}
+for _t in _GROQ_TOOLS:
+    _GROQ_TOOLS_BY_DOMAIN[_tool_domain(_t["function"]["name"])].append(_t)
+
+# Keywords that signal each domain.
+_DOMAIN_SIGNALS: dict[str, set[str]] = {
+    "food": {
+        "food", "restaurant", "order", "delivery", "menu", "eat", "eating",
+        "hungry", "hunger", "pizza", "burger", "biryani", "lunch", "dinner",
+        "breakfast", "meal", "dish", "cuisine", "swiggy food", "cart",
+    },
+    "im": {
+        "grocery", "groceries", "instamart", "restock", "vegetable", "vegetables",
+        "fruit", "fruits", "milk", "eggs", "bread", "household", "supplies",
+        "pantry", "shopping", "shop", "buy", "stock",
+    },
+    "dineout": {
+        "dine", "dining", "dineout", "table", "book a table", "reservation",
+        "reserve", "going out", "outing", "sit-down", "visit",
+    },
+}
+
+
+def _select_tools(messages: list[dict]) -> list[dict]:
+    """Return only tools relevant to the recent conversation."""
+    recent = " ".join(
+        (m.get("content") or "")
+        for m in messages[-6:]
+        if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)
+    ).lower()
+
+    active: list[dict] = []
+    for domain, signals in _DOMAIN_SIGNALS.items():
+        if any(s in recent for s in signals):
+            active.extend(_GROQ_TOOLS_BY_DOMAIN[domain])
+
+    # Fall back to all tools only when no domain signal is found.
+    return active if active else _GROQ_TOOLS
+
 
 class SwiggyOSAgent:
     """Agentic loop that talks to Groq and dispatches Swiggy MCP tool calls.
@@ -80,15 +131,33 @@ class SwiggyOSAgent:
 
         while True:
             try:
+                tools = _select_tools(messages)
                 response = await self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,
-                    tools=_GROQ_TOOLS,
+                    tools=tools,
                     tool_choice="auto",
                     stream=False,
                 )
             except groq_lib.RateLimitError:
                 yield "I'm being rate-limited by the AI provider right now. Please wait a moment and try again."
+                break
+            except groq_lib.BadRequestError as exc:
+                if "tool_use_failed" in str(exc):
+                    # Model generated a malformed tool call (usually missing required params).
+                    # Retry as plain text so it asks the user for the missing info instead.
+                    try:
+                        fallback = await self._client.chat.completions.create(
+                            model=self._model,
+                            messages=messages,
+                            stream=False,
+                        )
+                        if fallback.choices[0].message.content:
+                            yield fallback.choices[0].message.content
+                    except Exception:
+                        yield "I need a bit more information to help with that. Could you share your delivery address or tell me more about what you're looking for?"
+                    break
+                yield f"AI provider error (400). Please try again."
                 break
             except groq_lib.APIStatusError as exc:
                 yield f"AI provider error ({exc.status_code}). Please try again."
