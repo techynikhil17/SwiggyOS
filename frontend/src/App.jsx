@@ -5,7 +5,9 @@ import { PlanView } from './components/PlanView'
 import { useChat } from './hooks/useChat'
 import { getAuthStatus, loginWithSwiggy } from './api/chat'
 
-function LoginScreen({ offline }) {
+const IS_DEV = import.meta.env.DEV
+
+function LoginScreen({ offline, onDevBypass }) {
   return (
     <div
       style={{
@@ -100,6 +102,25 @@ function LoginScreen({ offline }) {
         <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: 20 }}>
           Uses Swiggy OAuth 2.1. Your credentials are never stored.
         </p>
+
+        {IS_DEV && !offline && (
+          <button
+            onClick={onDevBypass}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-secondary)',
+              fontSize: '11px',
+              marginTop: 16,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              textDecoration: 'underline',
+              opacity: 0.6,
+            }}
+          >
+            Dev: skip auth
+          </button>
+        )}
       </div>
     </div>
   )
@@ -159,7 +180,12 @@ export default function App() {
   }
 
   if (authState !== 'authenticated') {
-    return <LoginScreen offline={authState === 'offline'} />
+    return (
+      <LoginScreen
+        offline={authState === 'offline'}
+        onDevBypass={() => setAuthState('authenticated')}
+      />
+    )
   }
 
   return (

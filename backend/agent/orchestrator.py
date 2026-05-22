@@ -129,7 +129,8 @@ class SwiggyOSAgent:
             {"role": "user", "content": user_message},
         ]
 
-        while True:
+        max_iterations = 10
+        for _iteration in range(max_iterations):
             try:
                 tools = _select_tools(messages)
                 response = await self._client.chat.completions.create(
@@ -190,6 +191,7 @@ class SwiggyOSAgent:
 
             # ── Execute each tool call and inject results ─────────────────
             for tc in msg.tool_calls:
+                yield f"__TOOL__:{tc.function.name}"
                 tool_args = json.loads(tc.function.arguments)
                 result = await self._execute_tool(tc.function.name, tool_args)
                 messages.append({
@@ -198,6 +200,8 @@ class SwiggyOSAgent:
                     "name": tc.function.name,
                     "content": result,
                 })
+        else:
+            yield "I've hit my thinking limit on this one. Please try rephrasing your request."
 
     # ── Internal helpers ──────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 const BASE = 'http://localhost:8000'
 
-export async function streamChat(message, history, onChunk, onDone, onError) {
+export async function streamChat(message, history, onChunk, onDone, onError, onTool) {
   let response
   try {
     response = await fetch(`${BASE}/chat`, {
@@ -49,6 +49,10 @@ export async function streamChat(message, history, onChunk, onDone, onError) {
         if (data.error) {
           onError(data.error)
           return
+        }
+        if (data.tool) {
+          onTool?.(data.tool)
+          continue
         }
         if (data.text) {
           onChunk(data.text)

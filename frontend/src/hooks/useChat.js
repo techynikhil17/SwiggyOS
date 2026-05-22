@@ -1,8 +1,6 @@
 import { useState, useCallback } from 'react'
 import { streamChat } from '../api/chat'
 
-const TOOL_PATTERN = /^\[TOOL:([^\]]+)\]/
-
 export function useChat() {
   const [messages, setMessages] = useState([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -39,25 +37,17 @@ export function useChat() {
       text.trim(),
       history,
       (chunk) => {
-        const toolMatch = chunk.match(TOOL_PATTERN)
-        if (toolMatch) {
-          setCurrentTool(toolMatch[1])
-          chunk = chunk.replace(TOOL_PATTERN, '').trim()
-        } else if (assistantContent.length > 0) {
-          setCurrentTool(null)
-        }
-
-        if (chunk) {
-          assistantContent += chunk
-          setMessages(prev => {
-            const updated = [...prev]
-            updated[updated.length - 1] = {
-              ...updated[updated.length - 1],
-              content: assistantContent,
-            }
-            return updated
-          })
-        }
+        // Text arriving means the tool call finished — clear the indicator
+        setCurrentTool(null)
+        assistantContent += chunk
+        setMessages(prev => {
+          const updated = [...prev]
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            content: assistantContent,
+          }
+          return updated
+        })
       },
       () => {
         setIsStreaming(false)
@@ -75,6 +65,7 @@ export function useChat() {
         }
         setMessages(prev => prev.slice(0, -1))
       },
+      (toolName) => setCurrentTool(toolName),
     )
   }, [isStreaming, messages])
 

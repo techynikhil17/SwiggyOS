@@ -140,7 +140,7 @@ async def chat(req: ChatRequest):
     if not token_store.has_valid_token(req.user_id):
         # Auto-issue a dev token when Swiggy OAuth isn't wired up yet.
         # Set DEV_BYPASS_AUTH=false in production to enforce real tokens.
-        dev_bypass = os.getenv("DEV_BYPASS_AUTH", "true").lower() not in ("0", "false", "no")
+        dev_bypass = os.getenv("DEV_BYPASS_AUTH", "false").lower() == "true"
         if dev_bypass:
             token_store.store(user_id=req.user_id, access_token="dev-bypass-token", expires_in=86400)
         else:
@@ -153,7 +153,10 @@ async def chat(req: ChatRequest):
     async def event_stream():
         try:
             async for chunk in agent.run(req.message, req.conversation_history):
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
+                if chunk.startswith("__TOOL__:"):
+                    yield f"data: {json.dumps({'tool': chunk[9:]})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
         except TokenExpiredError:
             yield f"data: {json.dumps({'error': 'auth_expired', 'detail': 'Swiggy session expired. Please re-authenticate.'})}\n\n"
         except Exception as exc:
