@@ -101,7 +101,11 @@ async def auth_callback(code: str = Query(...), state: str = Query(...)):
 
 @app.get("/auth/status")
 async def auth_status(user_id: str = Query(...)):
-    return {"authenticated": token_store.has_valid_token(user_id)}
+    valid = token_store.has_valid_token(user_id)
+    return {
+        "authenticated": valid,
+        "expires_at": token_store.expires_at(user_id) if valid else None,
+    }
 
 
 @app.post("/auth/logout")

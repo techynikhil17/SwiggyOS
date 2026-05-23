@@ -3,7 +3,6 @@ function formatTime(ts) {
 }
 
 function renderContent(text) {
-  // Bold: **text**
   const parts = text.split(/(\*\*[^*]+\*\*)/g)
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
@@ -37,30 +36,27 @@ export function Message({ message, onConfirm, onCancel }) {
 
   if (isUser) {
     return (
-      <div className="flex justify-end px-4 py-1">
+      <div className="flex justify-end px-4 py-1 animate-fade-in-up">
         <div style={{ maxWidth: '72%' }}>
-          <div
-            style={{
-              background: 'var(--accent)',
-              color: '#fff',
-              borderRadius: '18px 18px 4px 18px',
-              padding: '10px 14px',
-              fontSize: '14px',
-              lineHeight: 1.5,
-              fontWeight: 400,
-            }}
-          >
+          <div style={{
+            background: 'linear-gradient(135deg, #ff6633 0%, #e8502a 100%)',
+            color: '#fff',
+            borderRadius: '18px 18px 4px 18px',
+            padding: '10px 14px',
+            fontSize: '14px',
+            lineHeight: 1.5,
+            fontWeight: 400,
+            boxShadow: '0 2px 12px rgba(255,102,51,0.2)',
+          }}>
             {renderContent(message.content)}
           </div>
-          <div
-            style={{
-              textAlign: 'right',
-              color: 'var(--text-secondary)',
-              fontSize: '11px',
-              marginTop: 4,
-              paddingRight: 2,
-            }}
-          >
+          <div style={{
+            textAlign: 'right',
+            color: 'var(--text-secondary)',
+            fontSize: '11px',
+            marginTop: 4,
+            paddingRight: 2,
+          }}>
             {formatTime(message.timestamp)}
           </div>
         </div>
@@ -69,19 +65,34 @@ export function Message({ message, onConfirm, onCancel }) {
   }
 
   return (
-    <div className="flex justify-start px-4 py-1">
-      <div style={{ maxWidth: '78%' }}>
-        <div
-          style={{
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-primary)',
-            borderRadius: '18px 18px 18px 4px',
-            padding: '10px 14px',
-            fontSize: '14px',
-            lineHeight: 1.6,
-          }}
-        >
+    <div className="flex justify-start px-4 py-1 animate-fade-in-up" style={{ gap: 8 }}>
+      {/* Avatar */}
+      <div style={{
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        background: 'var(--accent-subtle)',
+        border: '1px solid rgba(255,102,51,0.18)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '13px',
+        flexShrink: 0,
+        marginTop: 6,
+      }}>
+        🍱
+      </div>
+
+      <div style={{ maxWidth: '74%' }}>
+        <div style={{
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+          color: 'var(--text-primary)',
+          borderRadius: '4px 18px 18px 18px',
+          padding: '10px 14px',
+          fontSize: '14px',
+          lineHeight: 1.6,
+        }}>
           {message.content ? renderContent(message.content) : (
             <span style={{ color: 'var(--text-secondary)' }}>...</span>
           )}
@@ -131,14 +142,12 @@ export function Message({ message, onConfirm, onCancel }) {
           </div>
         )}
 
-        <div
-          style={{
-            color: 'var(--text-secondary)',
-            fontSize: '11px',
-            marginTop: showConfirm ? 6 : 4,
-            paddingLeft: 2,
-          }}
-        >
+        <div style={{
+          color: 'var(--text-secondary)',
+          fontSize: '11px',
+          marginTop: showConfirm ? 6 : 4,
+          paddingLeft: 2,
+        }}>
           {formatTime(message.timestamp)}
         </div>
       </div>

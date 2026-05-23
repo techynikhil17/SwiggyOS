@@ -49,6 +49,10 @@ class TokenStore:
         except TokenExpiredError:
             return False
 
+    def expires_at(self, user_id: str) -> float | None:
+        entry = self._tokens.get(user_id)
+        return entry["expires_at"] if entry else None
+
 
 # Module-level singleton shared across the FastAPI app.
 token_store = TokenStore()
