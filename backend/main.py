@@ -96,7 +96,7 @@ async def auth_callback(code: str = Query(...), state: str = Query(...)):
     )
 
     frontend = os.getenv("FRONTEND_URL", "http://localhost:5173")
-    return RedirectResponse(f"{frontend}?auth=ok&user_id={entry['user_id']}")
+    return RedirectResponse(f"{frontend}/app?auth=ok&user_id={entry['user_id']}")
 
 
 @app.get("/auth/status")
