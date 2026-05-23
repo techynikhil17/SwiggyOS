@@ -12,47 +12,46 @@ class MCPServerError(Exception):
 
 
 # Maps the Claude-facing tool name → (server_key, real_mcp_tool_name).
-# Ambiguous names (get_addresses, report_error) are prefixed here so
-# Claude's tool list is collision-free while MCP gets the real name.
+# server_key must match a key in SwiggyMCPClient._server_urls.
 _TOOL_ROUTING: dict[str, tuple[str, str]] = {
-    # ── Food ──────────────────────────────────────────────────────────────
-    "search_restaurants":       ("food", "search_restaurants"),
-    "get_restaurant_menu":      ("food", "get_restaurant_menu"),
-    "search_menu":              ("food", "search_menu"),
-    "get_food_cart":            ("food", "get_food_cart"),
-    "food_get_addresses":       ("food", "get_addresses"),
-    "fetch_food_coupons":       ("food", "fetch_food_coupons"),
-    "get_food_orders":          ("food", "get_food_orders"),
-    "get_food_order_details":   ("food", "get_food_order_details"),
-    "track_food_order":         ("food", "track_food_order"),
-    "update_food_cart":         ("food", "update_food_cart"),
-    "flush_food_cart":          ("food", "flush_food_cart"),
-    "apply_food_coupon":        ("food", "apply_food_coupon"),
-    "place_food_order":         ("food", "place_food_order"),
-    "food_report_error":        ("food", "report_error"),
-    # ── Instamart ─────────────────────────────────────────────────────────
-    "im_search_products":       ("im", "search_products"),
-    "im_go_to_items":           ("im", "your_go_to_items"),
-    "im_get_cart":              ("im", "get_cart"),
-    "im_get_addresses":         ("im", "get_addresses"),
-    "im_get_orders":            ("im", "get_orders"),
-    "im_get_order_details":     ("im", "get_order_details"),
-    "im_track_order":           ("im", "track_order"),
-    "im_update_cart":           ("im", "update_cart"),
-    "im_clear_cart":            ("im", "clear_cart"),
-    "im_checkout":              ("im", "checkout"),
-    "im_create_address":        ("im", "create_address"),
-    "im_delete_address":        ("im", "delete_address"),
-    "im_report_error":          ("im", "report_error"),
-    # ── Dineout ───────────────────────────────────────────────────────────
+    # ── Food ──────────────────────────────────────────────────────────────────
+    "get_addresses":          ("food", "get_addresses"),
+    "search_restaurants":     ("food", "search_restaurants"),
+    "get_restaurant_menu":    ("food", "get_restaurant_menu"),
+    "search_menu":            ("food", "search_menu"),
+    "get_food_cart":          ("food", "get_food_cart"),
+    "update_food_cart":       ("food", "update_food_cart"),
+    "flush_food_cart":        ("food", "flush_food_cart"),
+    "fetch_food_coupons":     ("food", "fetch_food_coupons"),
+    "apply_food_coupon":      ("food", "apply_food_coupon"),
+    "place_food_order":       ("food", "place_food_order"),
+    "get_food_orders":        ("food", "get_food_orders"),
+    "get_food_order_details": ("food", "get_food_order_details"),
+    "track_food_order":       ("food", "track_food_order"),
+    "food_report_error":      ("food", "report_error"),
+    # ── Instamart ─────────────────────────────────────────────────────────────
+    "im_get_addresses":       ("im", "get_addresses"),
+    "im_create_address":      ("im", "create_address"),
+    "im_delete_address":      ("im", "delete_address"),
+    "im_search_products":     ("im", "search_products"),
+    "im_your_go_to_items":    ("im", "your_go_to_items"),
+    "im_get_cart":            ("im", "get_cart"),
+    "im_update_cart":         ("im", "update_cart"),
+    "im_clear_cart":          ("im", "clear_cart"),
+    "im_checkout":            ("im", "checkout"),
+    "im_get_orders":          ("im", "get_orders"),
+    "im_get_order_details":   ("im", "get_order_details"),
+    "im_track_order":         ("im", "track_order"),
+    "im_report_error":        ("im", "report_error"),
+    # ── Dineout ───────────────────────────────────────────────────────────────
+    "get_saved_locations":        ("dineout", "get_saved_locations"),
     "search_restaurants_dineout": ("dineout", "search_restaurants_dineout"),
-    "get_restaurant_details":   ("dineout", "get_restaurant_details"),
-    "get_available_slots":      ("dineout", "get_available_slots"),
-    "get_booking_status":       ("dineout", "get_booking_status"),
-    "get_saved_locations":      ("dineout", "get_saved_locations"),
-    "dineout_create_cart":      ("dineout", "create_cart"),
-    "book_table":               ("dineout", "book_table"),
-    "dineout_report_error":     ("dineout", "report_error"),
+    "get_restaurant_details":     ("dineout", "get_restaurant_details"),
+    "get_available_slots":        ("dineout", "get_available_slots"),
+    "create_cart":                ("dineout", "create_cart"),
+    "book_table":                 ("dineout", "book_table"),
+    "get_booking_status":         ("dineout", "get_booking_status"),
+    "dineout_report_error":       ("dineout", "report_error"),
 }
 
 

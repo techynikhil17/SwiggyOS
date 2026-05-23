@@ -1,199 +1,212 @@
-# Tool definitions for the three Swiggy MCP servers, in Anthropic tool-call format.
+# Tool definitions for the three Swiggy MCP servers.
 #
-# Naming convention:
-#   - Food tools keep their exact MCP names (most already contain "food").
-#   - Instamart tools are prefixed "im_" to avoid collisions.
-#   - Dineout tools keep their exact MCP names (already unique).
-#   - The two ambiguous names are disambiguated:
-#       get_addresses  → food_get_addresses | im_get_addresses
-#       report_error   → food_report_error  | im_report_error | dineout_report_error
+# Claude-facing names for tools that would collide across servers:
+#   get_addresses (food)  vs  im_get_addresses (instamart)
+#   report_error (food)   →  food_report_error
+#   report_error (dineout) → dineout_report_error
+#   create_cart (dineout) kept as-is (no food/im collision)
 #
-# The SwiggyMCPClient routing table in backend/mcp/client.py maps every name
-# here back to the real MCP tool name on the correct server.
+# The SwiggyMCPClient routing table in swiggy_mcp/client.py maps every
+# Claude-facing name back to the real MCP tool name on the correct server.
 
-# ─── Food ────────────────────────────────────────────────────────────────────
+# ─── Food ─────────────────────────────────────────────────────────────────────
 
-food_tools: list[dict] = [
+FOOD_TOOLS = [
+    {
+        "name": "get_addresses",
+        "server": "food",
+        "description": "Get user's saved delivery addresses. Always call this first before any food tool that needs addressId. Returns list of addresses sorted by last order date.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
     {
         "name": "search_restaurants",
-        "description": (
-            "Search for food delivery restaurants by location and cuisine/dish. "
-            "Use this to find restaurants before building a cart."
-        ),
+        "server": "food",
+        "description": "Search for restaurants near a saved address. Only show restaurants with availabilityStatus='OPEN'. Requires addressId from get_addresses.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "addressId": {
-                    "type": "string",
-                    "description": "User's saved address ID for the delivery location.",
-                },
-                "query": {
-                    "type": "string",
-                    "description": "Cuisine, restaurant name, or dish name to search for.",
-                },
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "query": {"type": "string", "description": "Search query e.g. 'biryani', 'pizza', 'Chinese'"},
+                "offset": {"type": "number", "description": "Pagination offset (optional)"},
             },
             "required": ["addressId", "query"],
         },
     },
     {
         "name": "get_restaurant_menu",
-        "description": "Retrieve the full menu (with items, variants, and add-ons) for a specific restaurant.",
+        "server": "food",
+        "description": "Get paginated menu for a restaurant. Use search_menu for finding specific dishes with variant detail. Max 8 categories per page.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "restaurantId": {
-                    "type": "string",
-                    "description": "Unique restaurant identifier returned by search_restaurants.",
-                },
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "restaurantId": {"type": "string", "description": "Restaurant ID from search_restaurants"},
+                "page": {"type": "number", "description": "Page number (default 1)"},
+                "pageSize": {"type": "number", "description": "Categories per page (default 5, max 8)"},
             },
-            "required": ["restaurantId"],
+            "required": ["addressId", "restaurantId"],
         },
     },
     {
         "name": "search_menu",
-        "description": (
-            "Search for dishes within a specific restaurant's menu by keyword. "
-            "Apply dietary and allergy filters here before adding to cart."
-        ),
+        "server": "food",
+        "description": "Search for specific dishes across or within a restaurant. Returns items with variantsV2 OR variations (never both). Use restaurantIdOfAddedItem to scope to one restaurant.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "restaurantId": {
-                    "type": "string",
-                    "description": "Restaurant to search within.",
-                },
-                "query": {
-                    "type": "string",
-                    "description": "Dish name or ingredient keyword.",
-                },
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "query": {"type": "string", "description": "Dish search query e.g. 'paneer butter masala'"},
+                "restaurantIdOfAddedItem": {"type": "string", "description": "Scope search to this restaurant (optional)"},
+                "vegFilter": {"type": "number", "description": "1 = veg only, 0 = mixed (optional)"},
+                "offset": {"type": "number", "description": "Pagination offset (optional)"},
             },
-            "required": ["restaurantId", "query"],
+            "required": ["addressId", "query"],
         },
     },
     {
         "name": "get_food_cart",
-        "description": "Retrieve the current food delivery cart state including items, totals, and addon options.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "food_get_addresses",
-        "description": "Retrieve the user's saved food delivery addresses.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "fetch_food_coupons",
-        "description": "List available discount coupons and their eligibility criteria for food delivery.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "get_food_orders",
-        "description": "Retrieve the user's food delivery order history and any active orders.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "get_food_order_details",
-        "description": "Retrieve full details for a specific food delivery order.",
+        "server": "food",
+        "description": "Get current food cart contents, billing breakdown, and available payment methods. Call before place_food_order to show user summary.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "orderId": {"type": "string", "description": "Order identifier."},
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "restaurantName": {"type": "string", "description": "Restaurant name for display (optional)"},
             },
-            "required": ["orderId"],
-        },
-    },
-    {
-        "name": "track_food_order",
-        "description": (
-            "Track a food delivery order's live status and delivery-partner ETA. "
-            "Poll at most once every 10 seconds."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "orderId": {"type": "string", "description": "Order identifier to track."},
-            },
-            "required": ["orderId"],
+            "required": ["addressId"],
         },
     },
     {
         "name": "update_food_cart",
-        "description": "Add, update, or remove items in the food delivery cart.",
+        "server": "food",
+        "description": "Add or update items in the food cart. Use cartItems (not items). Each item needs itemId, quantity, and either variants or variantsV2 (never both). Call get_food_cart after to display result.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "restaurantId": {
-                    "type": "string",
-                    "description": "Restaurant the items belong to.",
-                },
-                "items": {
+                "restaurantId": {"type": "string", "description": "Restaurant ID"},
+                "cartItems": {
                     "type": "array",
-                    "description": "Items to add or update.",
+                    "description": "Array of cart items. Each item: { itemId, quantity, variants OR variantsV2 (not both) }",
                     "items": {
                         "type": "object",
                         "properties": {
                             "itemId": {"type": "string"},
-                            "quantity": {"type": "integer", "minimum": 0},
+                            "quantity": {"type": "number"},
+                            "variants": {"type": "object", "description": "Use for legacy items"},
+                            "variantsV2": {"type": "object", "description": "Use for new items"},
                         },
                         "required": ["itemId", "quantity"],
                     },
                 },
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
             },
-            "required": ["restaurantId", "items"],
+            "required": ["restaurantId", "cartItems", "addressId"],
         },
     },
     {
         "name": "flush_food_cart",
-        "description": "Clear the entire food delivery cart.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
+        "server": "food",
+        "description": "Clear the entire food cart.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
     },
     {
-        "name": "apply_food_coupon",
-        "description": "Apply a coupon code to the food delivery cart. Only COD-compatible coupons work in v1.",
+        "name": "fetch_food_coupons",
+        "server": "food",
+        "description": "Get available coupons for the current cart. Only show COD-compatible coupons to user (v1 is COD only).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "couponCode": {"type": "string", "description": "Discount code to apply."},
-                "addressId": {"type": "string", "description": "Delivery address ID."},
-                "cartId": {
-                    "type": "string",
-                    "description": "Optional cart ID if multiple carts exist.",
-                },
+                "restaurantId": {"type": "string", "description": "Restaurant ID"},
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "couponCode": {"type": "string", "description": "Check specific coupon applicability (optional)"},
+            },
+            "required": ["restaurantId", "addressId"],
+        },
+    },
+    {
+        "name": "apply_food_coupon",
+        "server": "food",
+        "description": "Apply a coupon code to the current cart.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "couponCode": {"type": "string", "description": "Coupon code to apply"},
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "cartId": {"type": "string", "description": "Cart ID (optional)"},
             },
             "required": ["couponCode", "addressId"],
         },
     },
     {
         "name": "place_food_order",
-        "description": (
-            "CONFIRMATION REQUIRED — Place the food delivery order. "
-            "You MUST present the full order summary (restaurant, items, total) to the user "
-            "and receive explicit confirmation before calling this tool. "
-            "This call is non-idempotent: call get_food_orders before retrying on failure. "
-            "Maximum cart value ₹1,000 in v1. Payment method: COD only."
-        ),
+        "server": "food",
+        "description": "Place the food order. NON-IDEMPOTENT — call get_food_orders before retrying on 5xx. Cart cap ₹1000. COD only in v1. REQUIRES explicit user confirmation before calling.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "paymentMethod": {
-                    "type": "string",
-                    "enum": ["COD"],
-                    "description": "Payment method — COD only in v1.",
-                },
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "paymentMethod": {"type": "string", "description": "Payment method (optional, defaults to available method)"},
             },
-            "required": ["paymentMethod"],
+            "required": ["addressId"],
+        },
+    },
+    {
+        "name": "get_food_orders",
+        "server": "food",
+        "description": "Get active food orders. Use for idempotency check before retrying place_food_order on 5xx. Not for order history.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "addressId": {"type": "string", "description": "Address ID from get_addresses"},
+                "orderCount": {"type": "number", "description": "Number of orders to return (default 5, max 20, optional)"},
+            },
+            "required": ["addressId"],
+        },
+    },
+    {
+        "name": "get_food_order_details",
+        "server": "food",
+        "description": "Get full details of a specific food order including items, pricing, delivery address, and status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "orderId": {"type": "string", "description": "Order ID from place_food_order or get_food_orders"},
+            },
+            "required": ["orderId"],
+        },
+    },
+    {
+        "name": "track_food_order",
+        "server": "food",
+        "description": "Track active food order(s). Poll no faster than every 10 seconds. Omit orderId to get all active orders.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "orderId": {"type": "string", "description": "Order ID to track (optional — omit to get all active orders)"},
+            },
+            "required": [],
         },
     },
     {
         "name": "food_report_error",
-        "description": "Generate a diagnostic error report for the Swiggy Food MCP server.",
+        "server": "food",
+        "description": "Report an error with a Food MCP tool call.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "tool": {"type": "string", "description": "Tool name where the error occurred."},
-                "errorMessage": {"type": "string", "description": "Error description."},
-                "flowDescription": {"type": "string"},
-                "toolContext": {"type": "object"},
-                "userNotes": {"type": "string"},
+                "tool": {"type": "string", "description": "Name of the tool that failed"},
+                "errorMessage": {"type": "string", "description": "Error message"},
+                "domain": {"type": "string", "description": "Error domain (optional)"},
+                "flowDescription": {"type": "string", "description": "Flow description (optional)"},
+                "userNotes": {"type": "string", "description": "User notes (optional)"},
             },
             "required": ["tool", "errorMessage"],
         },
@@ -202,151 +215,188 @@ food_tools: list[dict] = [
 
 # ─── Instamart ────────────────────────────────────────────────────────────────
 
-instamart_tools: list[dict] = [
+INSTAMART_TOOLS = [
     {
-        "name": "im_search_products",
-        "description": "Search the Instamart grocery catalog by keyword at a specific delivery address.",
+        "name": "im_get_addresses",
+        "server": "instamart",
+        "description": "Get user's saved addresses for Instamart delivery. Call before any Instamart tool needing addressId.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "im_create_address",
+        "server": "instamart",
+        "description": "Create a new delivery address. Requires full address details including lat/lng.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "addressId": {"type": "string", "description": "Delivery address ID."},
-                "query": {"type": "string", "description": "Product name or ingredient keyword."},
+                "fullAddress": {"type": "string"},
+                "addressLine": {"type": "string"},
+                "addressLine2": {"type": "string"},
+                "city": {"type": "string"},
+                "postalCode": {"type": "string"},
+                "latitude": {"type": "number"},
+                "longitude": {"type": "number"},
+                "category": {
+                    "type": "string",
+                    "enum": ["HOME", "WORK", "OFFICE", "FRIENDS_AND_FAMILY", "OTHER"],
+                },
+                "accountHolderName": {"type": "string"},
+                "phone": {"type": "string"},
+            },
+            "required": ["fullAddress", "addressLine", "city", "postalCode", "latitude", "longitude", "category", "accountHolderName", "phone"],
+        },
+    },
+    {
+        "name": "im_delete_address",
+        "server": "instamart",
+        "description": "Delete a saved address. PERMANENT and IRREVERSIBLE. MUST confirm with user before calling.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "addressId": {"type": "string", "description": "Address ID to delete"},
+            },
+            "required": ["addressId"],
+        },
+    },
+    {
+        "name": "im_search_products",
+        "server": "instamart",
+        "description": "Search for grocery products. Returns products with variants, each variant has a spinId. Always search first, then ask user which variant before adding to cart.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "addressId": {"type": "string", "description": "Address ID from im_get_addresses"},
+                "query": {"type": "string", "description": "Product search query e.g. 'milk', 'eggs', 'bread'"},
+                "offset": {"type": "number", "description": "Pagination offset (optional)"},
             },
             "required": ["addressId", "query"],
         },
     },
     {
-        "name": "im_go_to_items",
-        "description": "Fetch the user's frequently and recently ordered Instamart items for quick reorder.",
+        "name": "im_your_go_to_items",
+        "server": "instamart",
+        "description": "Get user's frequently and recently ordered grocery items with variants and spinId. Use for quick reorder suggestions.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "addressId": {"type": "string", "description": "Delivery address ID."},
+                "addressId": {"type": "string", "description": "Address ID from im_get_addresses"},
+                "offset": {"type": "number", "description": "Pagination offset (default 0, optional)"},
             },
             "required": ["addressId"],
         },
     },
     {
         "name": "im_get_cart",
-        "description": "Retrieve the current Instamart grocery cart with billing breakdown.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
+        "server": "instamart",
+        "description": "Get current Instamart cart contents, bill breakdown, and available payment methods.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
     },
     {
-        "name": "im_get_addresses",
-        "description": "Retrieve the user's saved Instamart delivery addresses.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "im_get_orders",
-        "description": "Retrieve Instamart grocery order history.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "im_get_order_details",
-        "description": "Retrieve full details for a specific Instamart order.",
+        "name": "im_update_cart",
+        "server": "instamart",
+        "description": "Add or update items in Instamart cart. Use spinId (not productId). Replaces entire cart contents.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "orderId": {"type": "string"},
+                "selectedAddressId": {"type": "string", "description": "Address ID from im_get_addresses"},
+                "items": {
+                    "type": "array",
+                    "description": "Array of items with spinId and quantity",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "spinId": {"type": "string", "description": "Variant spinId from im_search_products or im_your_go_to_items"},
+                            "quantity": {"type": "number"},
+                        },
+                        "required": ["spinId", "quantity"],
+                    },
+                },
+            },
+            "required": ["selectedAddressId", "items"],
+        },
+    },
+    {
+        "name": "im_clear_cart",
+        "server": "instamart",
+        "description": "Clear the entire Instamart cart. Use before switching delivery address.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "im_checkout",
+        "server": "instamart",
+        "description": "Place Instamart grocery order. NON-IDEMPOTENT — check im_get_orders before retrying on 5xx. Minimum ₹99, cap ₹1000. COD only in v1. REQUIRES explicit user confirmation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "addressId": {"type": "string", "description": "Address ID from im_get_addresses"},
+                "paymentMethod": {"type": "string", "description": "Payment method (optional, auto-defaults)"},
+            },
+            "required": ["addressId"],
+        },
+    },
+    {
+        "name": "im_get_orders",
+        "server": "instamart",
+        "description": "Get Instamart order history (last 15 days). Use for idempotency check before retrying im_checkout.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "count": {"type": "number", "description": "Number of orders (default 10, max 20, optional)"},
+                "orderType": {"type": "string", "description": "Order type (default 'DASH', optional)"},
+                "activeOnly": {"type": "boolean", "description": "Return only active orders (optional)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "im_get_order_details",
+        "server": "instamart",
+        "description": "Get full details of a specific Instamart order.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "orderId": {"type": "string", "description": "Order ID from im_checkout or im_get_orders"},
             },
             "required": ["orderId"],
         },
     },
     {
         "name": "im_track_order",
-        "description": (
-            "Track an Instamart order's live status and ETA. "
-            "Poll at most once every 10 seconds; typical window is 10–20 minutes post-checkout."
-        ),
+        "server": "instamart",
+        "description": "Track an active Instamart order in real-time. Poll max every 10 seconds. Requires orderId AND lat/lng.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "orderId": {"type": "string"},
+                "orderId": {"type": "string", "description": "Order ID to track"},
+                "lat": {"type": "number", "description": "User latitude"},
+                "lng": {"type": "number", "description": "User longitude"},
             },
-            "required": ["orderId"],
-        },
-    },
-    {
-        "name": "im_update_cart",
-        "description": "Add or modify products in the Instamart cart using variant-level SKU identifiers (spinId).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "spinId": {"type": "string", "description": "Variant-level SKU ID."},
-                            "quantity": {"type": "integer", "minimum": 0},
-                        },
-                        "required": ["spinId", "quantity"],
-                    },
-                },
-            },
-            "required": ["items"],
-        },
-    },
-    {
-        "name": "im_clear_cart",
-        "description": "Flush the Instamart cart. Call this before switching delivery address to avoid serviceability errors.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "im_checkout",
-        "description": (
-            "CONFIRMATION REQUIRED — Place the Instamart grocery order. "
-            "You MUST present the full cart summary and receive explicit user confirmation before calling this. "
-            "Non-idempotent: call im_get_orders before retrying on 5xx. "
-            "Minimum order ₹99. Payment method: COD only in v1."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "paymentMethod": {
-                    "type": "string",
-                    "enum": ["COD"],
-                    "description": "Payment method — COD only in v1.",
-                },
-            },
-            "required": ["paymentMethod"],
-        },
-    },
-    {
-        "name": "im_create_address",
-        "description": "Add a new delivery address to the user's Instamart saved locations.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "addressLine": {"type": "string"},
-                "label": {"type": "string", "description": "e.g. Home, Office."},
-                "latitude": {"type": "number"},
-                "longitude": {"type": "number"},
-            },
-            "required": ["addressLine", "label", "latitude", "longitude"],
-        },
-    },
-    {
-        "name": "im_delete_address",
-        "description": "Remove a saved address from the user's Instamart saved locations.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "addressId": {"type": "string", "description": "ID of the address to delete."},
-            },
-            "required": ["addressId"],
+            "required": ["orderId", "lat", "lng"],
         },
     },
     {
         "name": "im_report_error",
-        "description": "Generate a diagnostic error report for the Swiggy Instamart MCP server.",
+        "server": "instamart",
+        "description": "Report an error with an Instamart MCP tool call.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "tool": {"type": "string"},
                 "errorMessage": {"type": "string"},
+                "domain": {"type": "string"},
                 "flowDescription": {"type": "string"},
-                "toolContext": {"type": "object"},
                 "userNotes": {"type": "string"},
             },
             "required": ["tool", "errorMessage"],
@@ -354,143 +404,128 @@ instamart_tools: list[dict] = [
     },
 ]
 
-# ─── Dineout ─────────────────────────────────────────────────────────────────
+# ─── Dineout ──────────────────────────────────────────────────────────────────
 
-dineout_tools: list[dict] = [
+DINEOUT_TOOLS = [
+    {
+        "name": "get_saved_locations",
+        "server": "dineout",
+        "description": "Get user's saved locations for Dineout. Returns addressIds with lat/lng for search_restaurants_dineout. Use when user says 'near me' or 'my location'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
     {
         "name": "search_restaurants_dineout",
-        "description": (
-            "Search restaurants for table reservations (Dineout). "
-            "Returns cuisines, ratings, cost, highlights, and free deals. "
-            "Only free reservations (isFree=true) are supported in v1."
-        ),
+        "server": "dineout",
+        "description": "Search for dine-in restaurants. Use lat/lng from get_saved_locations. Returns restaurants with cuisines, ratings, cost, distance, and available offers.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Restaurant name, cuisine, or locality.",
-                },
+                "query": {"type": "string", "description": "Search query e.g. 'Italian', 'rooftop', 'family restaurant'"},
                 "entityType": {
                     "type": "string",
                     "enum": ["locality", "CUISINE", "RESTAURANT_CATEGORY"],
-                    "description": "Optional filter type for the query.",
+                    "description": "Entity type (optional)",
                 },
-                "addressId": {"type": "string", "description": "User's saved address ID."},
-                "latitude": {"type": "number"},
-                "longitude": {"type": "number"},
+                "addressId": {"type": "string", "description": "Address ID from get_saved_locations (optional)"},
+                "latitude": {"type": "number", "description": "Latitude from get_saved_locations (optional)"},
+                "longitude": {"type": "number", "description": "Longitude from get_saved_locations (optional)"},
             },
             "required": ["query"],
         },
     },
     {
         "name": "get_restaurant_details",
-        "description": "Get ratings, deals, timings, and address for a specific Dineout restaurant.",
+        "server": "dineout",
+        "description": "Get full details of a dine-in restaurant including deals, timings, and amenities.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "restaurantId": {"type": "string"},
-                "latitude": {"type": "number", "description": "User's current latitude."},
-                "longitude": {"type": "number", "description": "User's current longitude."},
+                "restaurantId": {"type": "string", "description": "Restaurant ID from search_restaurants_dineout"},
+                "latitude": {"type": "number", "description": "User latitude"},
+                "longitude": {"type": "number", "description": "User longitude"},
             },
             "required": ["restaurantId", "latitude", "longitude"],
         },
     },
     {
         "name": "get_available_slots",
-        "description": (
-            "Check available table booking slots at a restaurant (up to 7 days ahead). "
-            "Returns breakfast/lunch/dinner bands. Return free slots only (isFree=true)."
-        ),
+        "server": "dineout",
+        "description": "Get available booking slots for a restaurant. Returns slots up to 7 days out. ONLY use FREE slots (isFree=true, bookingPrice=0). Each slot has slotId, itemId, reservationTime (epoch), slotGroupName.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "restaurantId": {"type": "string"},
-                "date": {
-                    "type": "string",
-                    "description": "Date as YYYY-MM-DD or Unix epoch string.",
-                },
-                "latitude": {"type": "number"},
-                "longitude": {"type": "number"},
+                "restaurantId": {"type": "string", "description": "Restaurant ID"},
+                "date": {"type": "string", "description": "Date in YYYY-MM-DD format or epoch timestamp"},
+                "latitude": {"type": "number", "description": "User latitude"},
+                "longitude": {"type": "number", "description": "User longitude"},
             },
             "required": ["restaurantId", "date", "latitude", "longitude"],
         },
     },
     {
-        "name": "get_booking_status",
-        "description": "Retrieve reservation details including date, time, guests, and deal title.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "orderId": {"type": "string", "description": "Booking/order identifier."},
-            },
-            "required": ["orderId"],
-        },
-    },
-    {
-        "name": "get_saved_locations",
-        "description": "Retrieve the user's saved addresses with lat/lng — useful for 'near me' Dineout queries.",
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "dineout_create_cart",
-        "description": (
-            "Create a Dineout cart for a table booking or bill payment. "
-            "Note: book_table creates a cart internally — only call this separately if needed."
-        ),
+        "name": "create_cart",
+        "server": "dineout",
+        "description": "Create a Dineout cart for standalone cart operations. Note: book_table creates its own cart internally — only call this for standalone cart operations outside of table booking.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "restaurantId": {"type": "string"},
-                "cartType": {
-                    "type": "string",
-                    "enum": ["DEAL_TICKET_PURCHASE", "DINEOUT"],
-                },
+                "cartType": {"type": "string", "enum": ["DEAL_TICKET_PURCHASE", "DINEOUT"]},
                 "latitude": {"type": "number"},
                 "longitude": {"type": "number"},
+                "slotId": {"type": "string", "description": "Required for booking carts"},
+                "itemId": {"type": "string", "description": "Format: restaurantId-ticketId. Required for booking carts"},
+                "reservationTime": {"type": "number", "description": "Unix epoch. Required for booking carts"},
+                "guestCount": {"type": "number", "description": "1-20. Required for booking carts"},
             },
             "required": ["restaurantId", "cartType", "latitude", "longitude"],
         },
     },
     {
         "name": "book_table",
-        "description": (
-            "CONFIRMATION REQUIRED — Book a table at a Dineout restaurant. "
-            "You MUST present the booking details (restaurant, date, time, guests) and receive "
-            "explicit user confirmation before calling this. "
-            "Non-idempotent: call get_booking_status before retrying on failure. "
-            "Only free reservations are supported (bookingPrice must be 0)."
-        ),
+        "server": "dineout",
+        "description": "Book a table at a restaurant. NON-IDEMPOTENT. FREE reservations only (isFree=true, bookingPrice=0). REQUIRES explicit user confirmation before calling.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "restaurantId": {"type": "string"},
-                "slotId": {"type": "number", "description": "Slot ID from get_available_slots."},
-                "itemId": {"type": "string", "description": "Deal/item ID for the booking."},
-                "reservationTime": {"type": "number", "description": "Unix epoch of the reservation time."},
-                "guestCount": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 20,
-                    "description": "Number of guests.",
-                },
-                "latitude": {"type": "number"},
-                "longitude": {"type": "number"},
+                "restaurantId": {"type": "string", "description": "Restaurant ID"},
+                "slotId": {"type": "number", "description": "Slot ID from get_available_slots"},
+                "itemId": {"type": "string", "description": "Format: restaurantId-ticketId from get_available_slots"},
+                "reservationTime": {"type": "number", "description": "Unix epoch from get_available_slots"},
+                "guestCount": {"type": "integer", "description": "Number of guests (1-20)"},
+                "latitude": {"type": "number", "description": "User latitude"},
+                "longitude": {"type": "number", "description": "User longitude"},
             },
             "required": ["restaurantId", "slotId", "itemId", "reservationTime", "guestCount", "latitude", "longitude"],
         },
     },
     {
+        "name": "get_booking_status",
+        "server": "dineout",
+        "description": "Get status of a Dineout table booking.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "orderId": {"type": "string", "description": "Order ID from book_table"},
+            },
+            "required": ["orderId"],
+        },
+    },
+    {
         "name": "dineout_report_error",
-        "description": "Generate a diagnostic error report for the Swiggy Dineout MCP server.",
+        "server": "dineout",
+        "description": "Report an error with a Dineout MCP tool call.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "tool": {"type": "string"},
-                "domain": {"type": "string"},
                 "errorMessage": {"type": "string"},
+                "domain": {"type": "string"},
                 "flowDescription": {"type": "string"},
-                "toolContext": {"type": "object"},
                 "userNotes": {"type": "string"},
             },
             "required": ["tool", "errorMessage"],
@@ -498,5 +533,5 @@ dineout_tools: list[dict] = [
     },
 ]
 
-# Flat list passed to Claude's `tools` parameter.
-ALL_TOOLS = food_tools + instamart_tools + dineout_tools
+# Flat list passed to the LLM's tools parameter.
+ALL_TOOLS = FOOD_TOOLS + INSTAMART_TOOLS + DINEOUT_TOOLS
