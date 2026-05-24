@@ -118,8 +118,10 @@ async def auth_logout(user_id: str = Query(...)):
 
 class ChatRequest(BaseModel):
     message: str
-    conversation_history: list[dict[str, Any]] = []
-    user_id: str
+    conversation_history: list = []
+    user_id: str = "default"
+    tab: str = "all"
+    intent: str | None = None
 
 
 def _make_mcp_client(user_id: str) -> SwiggyMCPClient:
@@ -152,13 +154,15 @@ async def chat(req: ChatRequest):
 
     user_profile = await get_user_profile(req.user_id)
     mcp_client = _make_mcp_client(req.user_id)
-    agent = SwiggyOSAgent(mcp_client=mcp_client, user_context=user_profile)
+    agent = SwiggyOSAgent(mcp_client=mcp_client, user_context=user_profile, tab=req.tab)
 
     async def event_stream():
         try:
-            async for chunk in agent.run(req.message, req.conversation_history):
+            async for chunk in agent.run(req.message, req.conversation_history, req.intent):
                 if chunk.startswith("__TOOL__:"):
                     yield f"data: {json.dumps({'tool': chunk[9:]})}\n\n"
+                elif chunk.startswith("__AGENT__:"):
+                    yield f"data: {json.dumps({'agent': chunk[10:]})}\n\n"
                 else:
                     yield f"data: {json.dumps({'text': chunk})}\n\n"
         except TokenExpiredError:
