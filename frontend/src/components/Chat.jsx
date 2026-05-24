@@ -3,50 +3,87 @@ import { Send, Trash2 } from 'lucide-react'
 import { BudgetBar } from './BudgetBar'
 import { Message } from './Message'
 import { ToolIndicator } from './ToolIndicator'
+import { CrossPlatformPicker } from './CrossPlatformPicker'
+import { useChat } from '../hooks/useChat'
 
-const SUGGESTIONS = [
-  { label: 'Plan my week', emoji: '📅' },
-  { label: 'Restock groceries', emoji: '🛒' },
-  { label: 'Find a restaurant', emoji: '🍽️' },
-]
-
-function SwiggyOSLogo() {
-  return (
-    <div className="flex flex-col items-center gap-3 mb-8">
-      <div style={{
-        width: 56,
-        height: 56,
-        borderRadius: 16,
-        background: 'linear-gradient(135deg, #ff6633 0%, #e84e22 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: '26px',
-        boxShadow: '0 6px 24px rgba(255,102,51,0.25)',
-      }}>
-        🍱
-      </div>
-      <div style={{ textAlign: 'center' }}>
-        <div className="gradient-text" style={{ fontWeight: 700, fontSize: '22px', letterSpacing: '-0.03em' }}>
-          SwiggyOS
-        </div>
-        <div style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: 4 }}>
-          Your food life, automated.
-        </div>
-      </div>
-    </div>
-  )
+const TAB_CONFIG = {
+  food: {
+    emoji: '🍱',
+    placeholder: 'Order food, search restaurants, track delivery...',
+    suggestions: [
+      { label: '🍱 Order food',          message: 'I want to order food for delivery',  intent: 'food' },
+      { label: '🔍 Search restaurants',  message: 'Show me restaurants near me',        intent: 'food' },
+      { label: '🛒 View my cart',        message: 'Show me my food cart',               intent: 'food' },
+      { label: '📦 Track my order',      message: 'Track my current order',             intent: 'food' },
+    ],
+  },
+  instamart: {
+    emoji: '🛒',
+    placeholder: 'Search groceries, restock, track delivery...',
+    suggestions: [
+      { label: '🔄 Quick reorder',   message: 'Show my go-to grocery items',   intent: 'instamart' },
+      { label: '🥛 Search products', message: 'I want to search for groceries', intent: 'instamart' },
+      { label: '🛒 View my cart',    message: 'Show my Instamart cart',         intent: 'instamart' },
+      { label: '📦 Track delivery',  message: 'Track my grocery order',         intent: 'instamart' },
+    ],
+  },
+  dineout: {
+    emoji: '🍽️',
+    placeholder: 'Find restaurants, book a table...',
+    suggestions: [
+      { label: '🍽️ Find a restaurant', message: 'Find a restaurant to dine in tonight', intent: 'dineout' },
+      { label: '📅 Book a table',       message: 'I want to book a table for 2',         intent: 'dineout' },
+      { label: '🔍 Check availability', message: 'Show available slots near me',         intent: 'dineout' },
+      { label: '✅ My bookings',        message: 'Show my restaurant bookings',          intent: 'dineout' },
+    ],
+  },
+  all: {
+    emoji: '⚡',
+    placeholder: 'Ask anything — food, groceries, or dining...',
+    suggestions: [
+      { label: '🌆 Plan my evening', message: 'Book a restaurant and order dessert delivery', intent: null },
+      { label: '📅 Plan my week',    message: 'Help me plan my meals for the week',           intent: null },
+      { label: '💰 Track my budget', message: 'How much have I spent on food this month?',    intent: null },
+      { label: '🔄 Smart restock',   message: 'Restock my groceries based on my usual order', intent: null },
+    ],
+  },
 }
 
-export function Chat({ onSend, messages, isStreaming, currentTool, budget, error, onClearHistory }) {
+const TAB_LABELS = {
+  food: 'Food Agent',
+  instamart: 'Instamart Agent',
+  dineout: 'Dineout Agent',
+  all: 'SwiggyOS',
+}
+
+export function Chat({
+  tab,
+  chatState,
+  updateChat,
+  getTabContext,
+  foodMessages,
+  instamartMessages,
+  dineoutMessages,
+}) {
+  const { sendMessage, clearHistory } = useChat({ tab, chatState, updateChat })
+  const { messages, isStreaming, currentTool, error, budget } = chatState
+
   const [input, setInput] = useState('')
   const [inputFocused, setInputFocused] = useState(false)
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
 
+  const cfg = TAB_CONFIG[tab] || TAB_CONFIG.all
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isStreaming])
+
+  // Reset input when tab switches
+  useEffect(() => {
+    setInput('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+  }, [tab])
 
   function adjustHeight() {
     const ta = textareaRef.current
@@ -55,10 +92,10 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
     ta.style.height = Math.min(ta.scrollHeight, 116) + 'px'
   }
 
-  function handleSend() {
-    const text = input.trim()
-    if (!text || isStreaming) return
-    onSend(text)
+  function handleSend(text, intent) {
+    const t = (text || input).trim()
+    if (!t || isStreaming) return
+    sendMessage(t, intent || null)
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
@@ -70,14 +107,26 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
     }
   }
 
-  function handleConfirm() { onSend('Yes, confirm') }
-  function handleCancel() { onSend('Cancel') }
+  function handleContinueFrom(fromTab, history) {
+    const lastUserMsgs = history
+      .filter(m => m.role === 'user')
+      .slice(-3)
+      .map(m => m.content)
+      .join('; ')
+
+    const contextMsg = `[Continuing from ${fromTab} tab. Recent context: ${lastUserMsgs}]`
+    updateChat(prev => ({
+      ...prev,
+      messages: history.slice(-10),
+    }))
+    sendMessage(contextMsg, fromTab !== 'all' ? fromTab : null)
+  }
 
   const isEmpty = messages.length === 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <BudgetBar total={budget.total} spent={budget.spent} />
+      <BudgetBar total={budget?.total || 0} spent={budget?.spent || 0} />
 
       {/* Header */}
       <div style={{
@@ -101,10 +150,12 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
             flexShrink: 0,
             boxShadow: '0 2px 8px rgba(255,102,51,0.3)',
           }}>
-            🍱
+            {cfg.emoji}
           </div>
           <div>
-            <div style={{ fontWeight: 600, fontSize: '14px', lineHeight: 1.2 }}>SwiggyOS</div>
+            <div style={{ fontWeight: 600, fontSize: '14px', lineHeight: 1.2 }}>
+              {TAB_LABELS[tab]}
+            </div>
             <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
               {isStreaming ? (
                 <span style={{ color: 'var(--accent)', fontSize: '11px' }}>Responding...</span>
@@ -115,7 +166,7 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
 
         {messages.length > 0 && (
           <button
-            onClick={onClearHistory}
+            onClick={clearHistory}
             title="Clear conversation"
             style={{
               background: 'none',
@@ -160,12 +211,37 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
             height: '100%',
             padding: '40px 24px',
           }}>
-            <SwiggyOSLogo />
+            {/* Logo */}
+            <div className="flex flex-col items-center gap-3 mb-8">
+              <div style={{
+                width: 56,
+                height: 56,
+                borderRadius: 16,
+                background: 'linear-gradient(135deg, #ff6633 0%, #e84e22 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '26px',
+                boxShadow: '0 6px 24px rgba(255,102,51,0.25)',
+              }}>
+                {cfg.emoji}
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div className="gradient-text" style={{ fontWeight: 700, fontSize: '22px', letterSpacing: '-0.03em' }}>
+                  {TAB_LABELS[tab]}
+                </div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: 4 }}>
+                  Your food life, automated.
+                </div>
+              </div>
+            </div>
+
+            {/* Suggestion chips */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-              {SUGGESTIONS.map(s => (
+              {cfg.suggestions.map(s => (
                 <button
                   key={s.label}
-                  onClick={() => onSend(s.label)}
+                  onClick={() => handleSend(s.message, s.intent)}
                   style={{
                     background: 'var(--bg-secondary)',
                     border: '1px solid var(--border)',
@@ -188,10 +264,20 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
                     e.currentTarget.style.transform = 'translateY(0)'
                   }}
                 >
-                  {s.emoji} {s.label}
+                  {s.label}
                 </button>
               ))}
             </div>
+
+            {/* CrossPlatformPicker — All tab only */}
+            {tab === 'all' && (
+              <CrossPlatformPicker
+                foodMessages={foodMessages}
+                instamartMessages={instamartMessages}
+                dineoutMessages={dineoutMessages}
+                onContinue={handleContinueFrom}
+              />
+            )}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -199,8 +285,8 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
               <Message
                 key={i}
                 message={msg}
-                onConfirm={handleConfirm}
-                onCancel={handleCancel}
+                onConfirm={() => handleSend('Yes, confirm')}
+                onCancel={() => handleSend('Cancel')}
               />
             ))}
             {isStreaming && currentTool && <ToolIndicator tool={currentTool} />}
@@ -219,19 +305,17 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
         flexShrink: 0,
         background: 'var(--bg-primary)',
       }}>
-        <div
-          style={{
-            display: 'flex',
-            gap: 10,
-            alignItems: 'flex-end',
-            background: 'var(--bg-secondary)',
-            border: `1px solid ${inputFocused ? 'rgba(255,102,51,0.4)' : 'var(--border)'}`,
-            borderRadius: 14,
-            padding: '8px 8px 8px 14px',
-            transition: 'border-color 0.15s, box-shadow 0.15s',
-            boxShadow: inputFocused ? '0 0 0 3px rgba(255,102,51,0.07)' : 'none',
-          }}
-        >
+        <div style={{
+          display: 'flex',
+          gap: 10,
+          alignItems: 'flex-end',
+          background: 'var(--bg-secondary)',
+          border: `1px solid ${inputFocused ? 'rgba(255,102,51,0.4)' : 'var(--border)'}`,
+          borderRadius: 14,
+          padding: '8px 8px 8px 14px',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+          boxShadow: inputFocused ? '0 0 0 3px rgba(255,102,51,0.07)' : 'none',
+        }}>
           <textarea
             ref={textareaRef}
             value={input}
@@ -239,7 +323,7 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
             onKeyDown={handleKeyDown}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
-            placeholder="Ask anything about food, groceries, or dining..."
+            placeholder={cfg.placeholder}
             disabled={isStreaming}
             rows={1}
             style={{
@@ -259,7 +343,7 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
             }}
           />
           <button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={isStreaming || !input.trim()}
             style={{
               width: 34,
@@ -298,7 +382,12 @@ export function Chat({ onSend, messages, isStreaming, currentTool, budget, error
             )}
           </button>
         </div>
-        <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '11px', marginTop: 8 }}>
+        <div style={{
+          textAlign: 'center',
+          color: 'var(--text-secondary)',
+          fontSize: '11px',
+          marginTop: 8,
+        }}>
           Enter to send · Shift+Enter for new line
         </div>
       </div>

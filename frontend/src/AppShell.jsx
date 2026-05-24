@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { Zap } from 'lucide-react'
 import { Chat } from './components/Chat'
 import { PlanView } from './components/PlanView'
-import { useChat } from './hooks/useChat'
+import { TabBar } from './components/TabBar'
+import { useTabChats } from './hooks/useTabChats'
 import { getAuthStatus, loginWithSwiggy } from './api/chat'
 
 const IS_DEV = import.meta.env.DEV
@@ -169,7 +170,7 @@ export default function AppShell() {
   const [authState, setAuthState] = useState('loading')
   const [plans, setPlans] = useState([])
 
-  const { messages, isStreaming, currentTool, budget, error, sendMessage, clearHistory } = useChat()
+  const { chats, activeTab, setActiveTab, updateChat, getTabContext } = useTabChats()
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -187,10 +188,6 @@ export default function AppShell() {
       }
     })
   }, [])
-
-  function handleOrderFromPlan(plan) {
-    sendMessage(`Order ${plan.meal} from ${plan.source}`)
-  }
 
   if (authState === 'loading') {
     return (
@@ -224,21 +221,27 @@ export default function AppShell() {
 
   return (
     <div style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        <Chat
-          messages={messages}
-          isStreaming={isStreaming}
-          currentTool={currentTool}
-          budget={budget}
-          error={error}
-          onSend={sendMessage}
-          onClearHistory={clearHistory}
-        />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <Chat
+            tab={activeTab}
+            chatState={chats[activeTab]}
+            updateChat={(updater) => updateChat(activeTab, updater)}
+            getTabContext={getTabContext}
+            foodMessages={chats.food.messages}
+            instamartMessages={chats.instamart.messages}
+            dineoutMessages={chats.dineout.messages}
+          />
+        </div>
       </div>
       {plans.length > 0 && (
         <PlanView
           plans={plans}
-          onOrder={handleOrderFromPlan}
+          onOrder={(plan) => {
+            const chat = chats[activeTab]
+            if (chat) updateChat(activeTab, prev => ({ ...prev }))
+          }}
           onClose={() => setPlans([])}
         />
       )}

@@ -1,79 +1,69 @@
-import { useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import { streamChat } from '../api/chat'
 
-export function useChat() {
-  const [messages, setMessages] = useState([])
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [currentTool, setCurrentTool] = useState(null)
-  const [budget, setBudget] = useState({ total: 0, spent: 0 })
-  const [error, setError] = useState(null)
+function getErrorMsg(err) {
+  if (err === 'backend_offline')
+    return 'Backend offline. Start the server with: cd backend && uvicorn main:app --reload'
+  if (err === 'auth_expired')
+    return 'Your Swiggy session expired. Please reconnect.'
+  return 'Something went wrong. Please try again.'
+}
 
-  const sendMessage = useCallback(async (text) => {
-    if (isStreaming || !text.trim()) return
+export function useChat({ tab, chatState, updateChat }) {
+  const sendMessage = useCallback(async (text, intent = null) => {
+    if (chatState.isStreaming || !text.trim()) return
 
-    const userMsg = {
-      role: 'user',
-      content: text.trim(),
-      timestamp: Date.now(),
-    }
+    const userMsg = { role: 'user', content: text.trim(), timestamp: Date.now() }
 
-    setMessages(prev => [...prev, userMsg])
-    setIsStreaming(true)
-    setCurrentTool(null)
-    setError(null)
+    updateChat(prev => ({
+      ...prev,
+      messages: [
+        ...prev.messages,
+        userMsg,
+        { role: 'assistant', content: '', timestamp: Date.now() },
+      ],
+      isStreaming: true,
+      currentTool: null,
+      error: null,
+    }))
 
-    const history = messages.map(m => ({ role: m.role, content: m.content }))
-
+    const history = chatState.messages.map(m => ({ role: m.role, content: m.content }))
     let assistantContent = ''
-    const assistantMsg = {
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-    }
-
-    setMessages(prev => [...prev, { ...assistantMsg }])
 
     await streamChat(
       text.trim(),
       history,
       (chunk) => {
-        // Text arriving means the tool call finished — clear the indicator
-        setCurrentTool(null)
         assistantContent += chunk
-        setMessages(prev => {
-          const updated = [...prev]
-          updated[updated.length - 1] = {
-            ...updated[updated.length - 1],
-            content: assistantContent,
-          }
-          return updated
+        updateChat(prev => {
+          const msgs = [...prev.messages]
+          msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: assistantContent }
+          return { ...prev, messages: msgs, currentTool: null }
         })
       },
-      () => {
-        setIsStreaming(false)
-        setCurrentTool(null)
-      },
-      (err) => {
-        setIsStreaming(false)
-        setCurrentTool(null)
-        if (err === 'backend_offline') {
-          setError('Backend offline. Start the server with: cd backend && uvicorn main:app --reload')
-        } else if (err === 'auth_expired') {
-          setError('Your Swiggy session expired. Please reconnect.')
-        } else {
-          setError('Something went wrong. Please try again.')
-        }
-        setMessages(prev => prev.slice(0, -1))
-      },
-      (toolName) => setCurrentTool(toolName),
+      () => updateChat(prev => ({ ...prev, isStreaming: false, currentTool: null })),
+      (err) => updateChat(prev => ({
+        ...prev,
+        isStreaming: false,
+        currentTool: null,
+        messages: prev.messages.slice(0, -1),
+        error: getErrorMsg(err),
+      })),
+      (toolName) => updateChat(prev => ({ ...prev, currentTool: toolName })),
+      tab,
+      intent,
     )
-  }, [isStreaming, messages])
+  }, [tab, chatState.isStreaming, chatState.messages, updateChat])
 
   const clearHistory = useCallback(() => {
-    setMessages([])
-    setCurrentTool(null)
-    setError(null)
-  }, [])
+    updateChat(() => ({
+      messages: [],
+      isStreaming: false,
+      currentTool: null,
+      error: null,
+      budget: { total: 0, spent: 0 },
+    }))
+  }, [updateChat])
 
-  return { messages, isStreaming, currentTool, budget, setBudget, error, setError, sendMessage, clearHistory }
+  return { sendMessage, clearHistory }
 }
