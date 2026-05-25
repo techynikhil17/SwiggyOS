@@ -14,6 +14,7 @@ const SYSTEM_CARDS = [
     num: '01',
     label: 'FOOD',
     title: 'Food Delivery',
+    glow: 'rgba(255,102,51,0.08)',
     lines: [
       'Search restaurants near you.',
       'Build a cart, apply coupons.',
@@ -25,6 +26,7 @@ const SYSTEM_CARDS = [
     num: '02',
     label: 'INSTAMART',
     title: 'Grocery Runs',
+    glow: 'rgba(20,184,166,0.07)',
     lines: [
       'Restock from your go-to list.',
       'Search products, update cart.',
@@ -36,6 +38,7 @@ const SYSTEM_CARDS = [
     num: '03',
     label: 'DINEOUT',
     title: 'Table Reservations',
+    glow: 'rgba(168,85,247,0.07)',
     lines: [
       'Find restaurants with open slots.',
       'Pick a time, review details.',
@@ -61,6 +64,101 @@ const TECH_STACK = [
   { name: 'Supabase', sub: 'Profiles' },
 ]
 
+function pillEdge(nodeRect, containerRect, tx, ty) {
+  const cx = nodeRect.left + nodeRect.width  / 2 - containerRect.left
+  const cy = nodeRect.top  + nodeRect.height / 2 - containerRect.top
+  const dx = tx - cx
+  const dy = ty - cy
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  if (dist < 1) return { x: cx, y: cy }
+  const nx = dx / dist
+  const ny = dy / dist
+  const hw = nodeRect.width  / 2
+  const hh = nodeRect.height / 2
+  const scale = 1 / Math.sqrt((nx / hw) ** 2 + (ny / hh) ** 2)
+  return { x: cx + nx * scale, y: cy + ny * scale }
+}
+
+function useFloatingLines(heroRef, svgRef, anchorRef) {
+  useEffect(() => {
+    let rafId
+    let alive = true
+
+    function tick() {
+      if (!alive) return
+      const hero   = heroRef.current
+      const svg    = svgRef.current
+      const anchor = anchorRef.current
+      if (!hero || !svg || !anchor) { rafId = requestAnimationFrame(tick); return }
+
+      const cr = hero.getBoundingClientRect()
+      svg.setAttribute('width',  cr.width)
+      svg.setAttribute('height', cr.height)
+
+      const ar = anchor.getBoundingClientRect()
+      const tx = ar.left + ar.width / 2 - cr.left
+      const ty = ar.top - cr.top
+
+      hero.querySelectorAll('[data-line-node]').forEach(node => {
+        const id   = node.dataset.lineNode
+        const line = svg.querySelector(`#ln-${id}`)
+        if (!line) return
+        const nr = node.getBoundingClientRect()
+        const e  = pillEdge(nr, cr, tx, ty)
+        line.setAttribute('x1', e.x.toFixed(1))
+        line.setAttribute('y1', e.y.toFixed(1))
+        line.setAttribute('x2', tx.toFixed(1))
+        line.setAttribute('y2', ty.toFixed(1))
+      })
+
+      rafId = requestAnimationFrame(tick)
+    }
+
+    rafId = requestAnimationFrame(tick)
+    return () => { alive = false; cancelAnimationFrame(rafId) }
+  }, [heroRef, svgRef, anchorRef])
+}
+
+function ChatReplay({ inView }) {
+  const [animKey, setAnimKey] = useState(0)
+
+  useEffect(() => {
+    if (!inView) return
+    setAnimKey(k => k + 1)
+    const id = setInterval(() => setAnimKey(k => k + 1), 8000)
+    return () => clearInterval(id)
+  }, [inView])
+
+  return (
+    <div className="chat-window">
+      <div className="chat-window-header">
+        <span className="chat-window-dot" />
+        SwiggyOS Agent
+      </div>
+      <div key={animKey} className="chat-messages">
+        <div className="chat-bubble-user" style={{ animationDelay: '0.3s' }}>
+          "Order biryani for two, my usual address"
+        </div>
+        <div className="chat-tool-pill" style={{ animationDelay: '1.1s' }}>
+          ⚡ search_restaurants · get_addresses
+        </div>
+        <div className="chat-bubble-agent" style={{ animationDelay: '2.0s' }}>
+          Found Biryani Blues nearby — ₹480 total. Deliver to HSR Layout?
+        </div>
+        <div className="chat-bubble-agent" style={{ animationDelay: '3.2s' }}>
+          Cart ready. Tap confirm to place order.
+        </div>
+        <div className="chat-confirm-btn" style={{ animationDelay: '4.2s' }}>
+          ✓ Confirm Order
+        </div>
+        <div className="chat-bubble-agent chat-success" style={{ animationDelay: '5.5s' }}>
+          ✓ Order placed! ETA 28 min. Tracking live.
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RevealBlock({ children, delay = 0, className = '' }) {
   const [ref, inView] = useInView()
   return (
@@ -81,6 +179,12 @@ function RevealBlock({ children, delay = 0, className = '' }) {
 export default function LandingPage() {
   const navigate = useNavigate()
   const [navScrolled, setNavScrolled] = useState(false)
+  const heroRef   = useRef(null)
+  const svgRef    = useRef(null)
+  const anchorRef = useRef(null)
+  useFloatingLines(heroRef, svgRef, anchorRef)
+  const [flowRef, flowInView] = useInView()
+  const [builtOnRef, builtOnInView] = useInView()
 
   useEffect(() => {
     const onScroll = () => setNavScrolled(window.scrollY > 40)
@@ -142,7 +246,7 @@ export default function LandingPage() {
       </nav>
 
       {/* ── HERO ── */}
-      <section style={{
+      <section ref={heroRef} style={{
         minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
@@ -174,7 +278,46 @@ export default function LandingPage() {
           filter: 'blur(40px)',
         }} />
 
-        <div style={{ position: 'relative', zIndex: 1, maxWidth: 900 }}>
+        {/* Live SVG — lines from nodes to headline anchor */}
+        <svg
+          ref={svgRef}
+          style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none', overflow: 'visible' }}
+        >
+          {['n1','n2','n3','n4','n5','n6','n7','n8'].map(id => (
+            <line
+              key={id}
+              id={`ln-${id}`}
+              stroke="rgba(255,255,255,0.08)"
+              strokeWidth="1"
+              strokeDasharray="5 6"
+              style={{ animation: 'flowDash 3s linear infinite' }}
+            />
+          ))}
+        </svg>
+
+        {/* Floating nodes */}
+        {[
+          { id: 'n1', label: 'Food',           cls: 'fnode-accent', style: { top: '10%',    left: '4%'   }, dur: '5s',   del: '0s'   },
+          { id: 'n2', label: 'Instamart',      cls: 'fnode-muted',  style: { top: '14%',    right: '5%'  }, dur: '4.5s', del: '0.7s' },
+          { id: 'n3', label: '35 Tools',       cls: 'fnode-muted',  style: { top: '46%',    left: '2%'   }, dur: '5.5s', del: '1.2s' },
+          { id: 'n4', label: 'Dineout',        cls: 'fnode-accent', style: { top: '46%',    right: '3%'  }, dur: '4s',   del: '0.4s' },
+          { id: 'n5', label: 'Order placed ✓', cls: 'fnode-green',  style: { bottom: '8%',  left: '28%'  }, dur: '6s',   del: '1.8s' },
+          { id: 'n6', label: 'Live tracking',  cls: 'fnode-muted',  style: { bottom: '8%',  right: '26%' }, dur: '4.8s', del: '0.9s' },
+          { id: 'n7', label: 'OAuth 2.1',      cls: 'fnode-muted',  style: { top: '60%',    left: '18%'  }, dur: '5.2s', del: '2.2s' },
+          { id: 'n8', label: 'MCP Server',     cls: 'fnode-muted',  style: { top: '60%',    right: '18%' }, dur: '4.6s', del: '1.5s' },
+        ].map(({ id, label, cls, style, dur, del }) => (
+          <div
+            key={id}
+            data-line-node={id}
+            className={`fnode ${cls}`}
+            style={{ ...style, '--dur': dur, '--del': del }}
+          >
+            <span className="fnode-dot" />
+            {label}
+          </div>
+        ))}
+
+        <div style={{ position: 'relative', zIndex: 2, maxWidth: 900 }}>
           <div className="landing-label" style={{ marginBottom: 24 }}>
             AI-POWERED FOOD AGENT
           </div>
@@ -189,6 +332,7 @@ export default function LandingPage() {
           }}>
             <span className="outline-text" style={{ display: 'block' }}>YOUR FOOD LIFE,</span>
             <span style={{ display: 'block', color: 'var(--orange)' }}>AUTOMATED.</span>
+            <span ref={anchorRef} style={{ display: 'block', height: 0, lineHeight: 0, overflow: 'hidden' }} />
           </h1>
 
           <p style={{
@@ -325,10 +469,16 @@ export default function LandingPage() {
                 borderRight: i < SYSTEM_CARDS.length - 1 ? '1px solid var(--border-raw)' : 'none',
                 height: '100%',
                 background: 'var(--surface)',
-                transition: 'background 0.2s',
+                transition: 'background 0.2s, box-shadow 0.3s',
               }}
-              onMouseOver={e => e.currentTarget.style.background = 'var(--surface-hover)'}
-              onMouseOut={e => e.currentTarget.style.background = 'var(--surface)'}
+              onMouseOver={e => {
+                e.currentTarget.style.background = 'var(--surface-hover)'
+                e.currentTarget.style.boxShadow = `inset 0 0 40px ${card.glow}`
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.background = 'var(--surface)'
+                e.currentTarget.style.boxShadow = 'none'
+              }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
                   <div className="landing-label" style={{ color: 'var(--orange)' }}>{card.label}</div>
@@ -367,8 +517,8 @@ export default function LandingPage() {
                 </div>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {card.tools.map(t => (
-                    <span key={t} style={{
+                  {card.tools.map((t, j) => (
+                    <span key={t} className="tp-anim" style={{
                       fontFamily: 'monospace',
                       fontSize: '10px',
                       color: 'var(--ink-3)',
@@ -377,6 +527,7 @@ export default function LandingPage() {
                       borderRadius: 3,
                       padding: '3px 8px',
                       letterSpacing: '0.02em',
+                      '--tp-delay': `${i * 150 + j * 80 + 300}ms`,
                     }}>
                       {t}
                     </span>
@@ -389,7 +540,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── THE FLOW ── */}
-      <section style={{
+      <section ref={flowRef} style={{
         padding: 'clamp(80px, 10vw, 120px) clamp(20px, 5vw, 80px)',
         borderTop: '1px solid var(--border-raw)',
       }}>
@@ -408,72 +559,71 @@ export default function LandingPage() {
           </h2>
         </RevealBlock>
 
-        <div style={{ maxWidth: 640, position: 'relative' }}>
-          {/* connector line */}
-          <div style={{
-            position: 'absolute',
-            left: 19,
-            top: 24,
-            bottom: 0,
-            width: 1,
-            background: 'linear-gradient(to bottom, var(--orange), transparent)',
-            opacity: 0.25,
-          }} />
-
-          {FLOW_STEPS.map((step, i) => (
-            <RevealBlock key={i} delay={i * 120}>
-              <div style={{
-                display: 'flex',
-                gap: 28,
-                marginBottom: i < FLOW_STEPS.length - 1 ? 48 : 0,
-                position: 'relative',
-              }}>
-                {/* step dot */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 'clamp(32px, 6vw, 80px)',
+          alignItems: 'start',
+        }}>
+          {/* Left: flow steps */}
+          <div style={{ maxWidth: 560, position: 'relative' }}>
+            {/* connector line */}
+            <div style={{
+              position: 'absolute',
+              left: 19,
+              top: 24,
+              bottom: 0,
+              width: 1,
+              background: 'linear-gradient(to bottom, var(--orange), transparent)',
+              opacity: 0.25,
+            }} />
+            {FLOW_STEPS.map((step, i) => (
+              <RevealBlock key={i} delay={i * 120}>
                 <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 4,
-                  border: '1px solid var(--border-raw)',
-                  background: i === 0 ? 'rgba(255,102,51,0.15)' : 'var(--surface)',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  color: i === 0 ? 'var(--orange)' : 'var(--ink-3)',
-                  letterSpacing: '0.04em',
+                  gap: 28,
+                  marginBottom: i < FLOW_STEPS.length - 1 ? 48 : 0,
+                  position: 'relative',
                 }}>
-                  {step.n}
-                </div>
-                <div>
                   <div style={{
+                    width: 40, height: 40, borderRadius: 4,
+                    border: '1px solid var(--border-raw)',
+                    background: i === 0 ? 'rgba(255,102,51,0.15)' : 'var(--surface)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
                     fontFamily: "'Space Grotesk', sans-serif",
-                    fontWeight: 600,
-                    fontSize: '17px',
-                    letterSpacing: '-0.02em',
-                    marginBottom: 8,
+                    fontSize: '11px', fontWeight: 700,
+                    color: i === 0 ? 'var(--orange)' : 'var(--ink-3)',
+                    letterSpacing: '0.04em',
                   }}>
-                    {step.title}
+                    {step.n}
                   </div>
-                  <p style={{
-                    color: 'var(--ink-2)',
-                    fontSize: '14px',
-                    lineHeight: 1.7,
-                    margin: 0,
-                  }}>
-                    {step.body}
-                  </p>
+                  <div>
+                    <div style={{
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      fontWeight: 600, fontSize: '17px',
+                      letterSpacing: '-0.02em', marginBottom: 8,
+                    }}>
+                      {step.title}
+                    </div>
+                    <p style={{ color: 'var(--ink-2)', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>
+                      {step.body}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </RevealBlock>
-          ))}
+              </RevealBlock>
+            ))}
+          </div>
+
+          {/* Right: chat replay */}
+          <div style={{ width: '100%' }}>
+            <ChatReplay inView={flowInView} />
+          </div>
         </div>
       </section>
 
       {/* ── BUILT ON ── */}
-      <section style={{
+      <section ref={builtOnRef} style={{
         padding: 'clamp(80px, 10vw, 120px) clamp(20px, 5vw, 80px)',
         borderTop: '1px solid var(--border-raw)',
       }}>
@@ -486,7 +636,23 @@ export default function LandingPage() {
           flexWrap: 'wrap',
           gap: 0,
           border: '1px solid var(--border-raw)',
+          position: 'relative',
+          overflow: 'hidden',
         }}>
+          {builtOnInView && (
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: '-2px',
+              width: '2px',
+              height: '100%',
+              background: 'linear-gradient(to bottom, transparent, rgba(255,102,51,0.7), transparent)',
+              boxShadow: '0 0 10px rgba(255,102,51,0.4)',
+              animation: 'sweepScan 1.8s ease-in-out forwards',
+              pointerEvents: 'none',
+              zIndex: 2,
+            }} />
+          )}
           {TECH_STACK.map((tech, i) => (
             <RevealBlock key={i} delay={i * 60}>
               <div style={{
@@ -496,6 +662,8 @@ export default function LandingPage() {
                 minWidth: 160,
                 background: 'var(--surface)',
                 transition: 'background 0.2s',
+                animation: builtOnInView ? 'tileFlash 0.6s ease-in-out forwards' : 'none',
+                animationDelay: builtOnInView ? `${i * 250}ms` : '0ms',
               }}
               onMouseOver={e => e.currentTarget.style.background = 'var(--surface-hover)'}
               onMouseOut={e => e.currentTarget.style.background = 'var(--surface)'}
@@ -531,6 +699,23 @@ export default function LandingPage() {
         position: 'relative',
         overflow: 'hidden',
       }}>
+        {/* Pulse rings */}
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            width: 200,
+            height: 200,
+            borderRadius: '50%',
+            border: '1px solid rgba(255,102,51,0.12)',
+            animation: 'ringExpand 3s ease-out infinite',
+            animationDelay: `${i}s`,
+            pointerEvents: 'none',
+            zIndex: 0,
+          }} />
+        ))}
+
         {/* glow */}
         <div style={{
           position: 'absolute',
