@@ -159,8 +159,10 @@ async def chat(req: ChatRequest):
     async def event_stream():
         try:
             async for chunk in agent.run(req.message, req.conversation_history, req.intent):
-                if chunk.startswith("__TOOL__:"):
-                    yield f"data: {json.dumps({'tool': chunk[9:]})}\n\n"
+                if chunk.startswith("__TOOL_CALL__:"):
+                    yield f"data: {json.dumps({'tool_call': json.loads(chunk[14:])})}\n\n"
+                elif chunk.startswith("__TOOL_RESULT__:"):
+                    yield f"data: {json.dumps({'tool_result': json.loads(chunk[16:])})}\n\n"
                 elif chunk.startswith("__AGENT__:"):
                     yield f"data: {json.dumps({'agent': chunk[10:]})}\n\n"
                 else:

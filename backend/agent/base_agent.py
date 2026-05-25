@@ -50,21 +50,33 @@ class BaseSwiggyAgent:
         - text chunks from the model
         """
         messages: list[dict] = [
-            {"role": "system", "content": self._system_prompt()},
+            {"role": "system", "content": self._system_prompt() + self._communication_rules()},
             *self._convert_history(conversation_history or []),
             {"role": "user", "content": user_message},
         ]
 
-        # Force tool use on first turn when intent is explicit
-        tool_choice = "required" if (intent and not conversation_history) else "auto"
+        tool_calls_made = 0
+        MAX_TOOL_CALLS = 6
 
         for _iteration in range(10):
+            # Safety: if too many tool calls were made, force a plain-text response
+            if tool_calls_made >= MAX_TOOL_CALLS:
+                try:
+                    final = await self._client.chat.completions.create(
+                        model=self._model, messages=messages, stream=False
+                    )
+                    if final.choices[0].message.content:
+                        yield final.choices[0].message.content
+                except Exception:
+                    yield "I've gathered the information. Please connect your Swiggy account to complete the request."
+                break
+
             try:
                 response = await self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,
                     tools=self._tools,
-                    tool_choice=tool_choice if self._tools else "none",
+                    tool_choice="auto" if self._tools else "none",
                     stream=False,
                 )
             except Exception as exc:
@@ -83,9 +95,6 @@ class BaseSwiggyAgent:
                 else:
                     yield f"AI provider error: {exc}"
                 break
-
-            # After first iteration revert to auto
-            tool_choice = "auto"
 
             msg = response.choices[0].message
             if not msg.tool_calls:
@@ -110,10 +119,12 @@ class BaseSwiggyAgent:
             })
 
             for tc in msg.tool_calls:
-                yield f"__TOOL__:{tc.function.name}"
-                result = await self._execute_tool(
-                    tc.function.name, json.loads(tc.function.arguments)
-                )
+                tool_calls_made += 1
+                tool_args = json.loads(tc.function.arguments)
+                yield f"__TOOL_CALL__:{json.dumps({'name': tc.function.name, 'args': tool_args})}"
+                result = await self._execute_tool(tc.function.name, tool_args)
+                result_preview = result[:1000] if len(result) > 1000 else result
+                yield f"__TOOL_RESULT__:{json.dumps({'name': tc.function.name, 'result': result_preview})}"
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -174,6 +185,15 @@ class BaseSwiggyAgent:
 
     def _system_prompt(self) -> str:
         raise NotImplementedError
+
+    def _communication_rules(self) -> str:
+        return """
+## COMMUNICATION RULES — NEVER VIOLATE
+- NEVER include raw JSON, tool names, parameter names, error codes, or any internal API detail in your response text.
+- If a tool fails or returns an error, respond naturally: "I wasn't able to fetch that right now. Please make sure your Swiggy account is connected and try again."
+- NEVER say things like "I called get_addresses" or "the tool failed" or show JSON objects to the user.
+- NEVER expose addressId, spinId, restaurantId, slotId, or any internal identifier in your replies.
+- Respond as a friendly food assistant. If something can't be completed, explain it in plain English without technical details."""
 
     def _user_ctx(self) -> str:
         ctx = self._user_context
