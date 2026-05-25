@@ -10,6 +10,8 @@ export async function streamChat(
   tab = 'all',
   intent = null,
   onAgent = null,
+  onToolCall = null,
+  onToolResult = null,
 ) {
   let response
   try {
@@ -66,8 +68,13 @@ export async function streamChat(
           onAgent?.(data.agent)
           continue
         }
-        if (data.tool) {
-          onTool?.(data.tool)
+        if (data.tool_call) {
+          onToolCall?.(data.tool_call)
+          onTool?.(data.tool_call.name)
+          continue
+        }
+        if (data.tool_result) {
+          onToolResult?.(data.tool_result)
           continue
         }
         if (data.text) {

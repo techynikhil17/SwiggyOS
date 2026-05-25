@@ -4,6 +4,7 @@ import { BudgetBar } from './BudgetBar'
 import { Message } from './Message'
 import { ToolIndicator } from './ToolIndicator'
 import { CrossPlatformPicker } from './CrossPlatformPicker'
+import { ToolCallCard } from './ToolCallCard'
 import { useChat } from '../hooks/useChat'
 
 const TAB_CONFIG = {
@@ -281,15 +282,26 @@ export function Chat({
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {messages.map((msg, i) => (
-              <Message
-                key={i}
-                message={msg}
-                onConfirm={() => handleSend('Yes, confirm')}
-                onCancel={() => handleSend('Cancel')}
-              />
-            ))}
-            {isStreaming && currentTool && <ToolIndicator tool={currentTool} />}
+            {messages.map((msg, i) => {
+              if (msg.type === 'tool_call') {
+                return (
+                  <ToolCallCard
+                    key={msg.id || i}
+                    name={msg.name}
+                    args={msg.args}
+                    result={msg.result}
+                  />
+                )
+              }
+              return (
+                <Message
+                  key={i}
+                  message={msg}
+                  onConfirm={() => handleSend('Yes, confirm')}
+                  onCancel={() => handleSend('Cancel')}
+                />
+              )
+            })}
             {isStreaming && !currentTool && messages[messages.length - 1]?.role === 'user' && (
               <ToolIndicator tool={null} />
             )}
