@@ -297,14 +297,14 @@ export default function LandingPage() {
 
         {/* Floating nodes */}
         {[
-          { id: 'n1', label: 'Food',           cls: 'fnode-accent', style: { top: '10%',    left: '4%'   }, dur: '5s',   del: '0s'   },
-          { id: 'n2', label: 'Instamart',      cls: 'fnode-muted',  style: { top: '14%',    right: '5%'  }, dur: '4.5s', del: '0.7s' },
-          { id: 'n3', label: '35 Tools',       cls: 'fnode-muted',  style: { top: '46%',    left: '2%'   }, dur: '5.5s', del: '1.2s' },
-          { id: 'n4', label: 'Dineout',        cls: 'fnode-accent', style: { top: '46%',    right: '3%'  }, dur: '4s',   del: '0.4s' },
-          { id: 'n5', label: 'Order placed ✓', cls: 'fnode-green',  style: { bottom: '8%',  left: '28%'  }, dur: '6s',   del: '1.8s' },
-          { id: 'n6', label: 'Live tracking',  cls: 'fnode-muted',  style: { bottom: '8%',  right: '26%' }, dur: '4.8s', del: '0.9s' },
-          { id: 'n7', label: 'OAuth 2.1',      cls: 'fnode-muted',  style: { top: '60%',    left: '18%'  }, dur: '5.2s', del: '2.2s' },
-          { id: 'n8', label: 'MCP Server',     cls: 'fnode-muted',  style: { top: '60%',    right: '18%' }, dur: '4.6s', del: '1.5s' },
+          { id: 'n1', label: 'Food',           cls: 'fnode-accent', style: { top: '10%',  left: '4%'   }, dur: '5s',   del: '0s'   },
+          { id: 'n2', label: 'Instamart',      cls: 'fnode-muted',  style: { top: '12%',  right: '5%'  }, dur: '4.5s', del: '0.7s' },
+          { id: 'n3', label: '35 Tools',       cls: 'fnode-muted',  style: { top: '42%',  left: '2%'   }, dur: '5.5s', del: '1.2s' },
+          { id: 'n4', label: 'Dineout',        cls: 'fnode-accent', style: { top: '42%',  right: '3%'  }, dur: '4s',   del: '0.4s' },
+          { id: 'n5', label: 'Order placed ✓', cls: 'fnode-green',  style: { top: '64%',  left: '22%'  }, dur: '6s',   del: '1.8s' },
+          { id: 'n6', label: 'Live tracking',  cls: 'fnode-muted',  style: { top: '64%',  right: '20%' }, dur: '4.8s', del: '0.9s' },
+          { id: 'n7', label: 'OAuth 2.1',      cls: 'fnode-muted',  style: { top: '54%',  left: '12%'  }, dur: '5.2s', del: '2.2s' },
+          { id: 'n8', label: 'MCP Server',     cls: 'fnode-muted',  style: { top: '54%',  right: '10%' }, dur: '4.6s', del: '1.5s' },
         ].map(({ id, label, cls, style, dur, del }) => (
           <div
             key={id}
