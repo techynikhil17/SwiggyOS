@@ -9,14 +9,18 @@ from swiggy_mcp.client import SwiggyMCPClient
 
 _DOMAIN_SIGNALS = {
     "food": {
-        "food", "restaurant", "order", "delivery", "menu", "eat", "eating",
-        "hungry", "pizza", "burger", "biryani", "lunch", "dinner",
-        "breakfast", "meal", "dish", "cuisine", "cart", "takeaway",
+        # Specific food-delivery terms only — avoid generic words like "order"
+        "food", "restaurant", "food delivery", "food order", "delivery food",
+        "menu", "eat out", "eating", "hungry", "pizza", "burger", "biryani",
+        "sushi", "pasta", "noodles", "lunch", "dinner", "breakfast",
+        "meal", "dish", "cuisine", "food cart", "takeaway", "take away",
     },
     "instamart": {
-        "grocery", "groceries", "instamart", "restock", "vegetable",
-        "fruit", "milk", "eggs", "bread", "household", "supplies",
-        "pantry", "shopping", "stock", "supermarket",
+        "grocery", "groceries", "instamart", "restock", "restocking",
+        "vegetable", "vegetables", "fruit", "fruits", "milk", "eggs",
+        "bread", "household", "supplies", "pantry", "shopping list",
+        "stock up", "supermarket", "go-to items", "usual groceries",
+        "usual order", "weekly groceries", "daily essentials",
     },
     "dineout": {
         "dine", "dining", "dineout", "table", "book a table", "reservation",
@@ -24,6 +28,11 @@ _DOMAIN_SIGNALS = {
         "restaurant this", "book",
     },
 }
+
+
+def _count_signals(text: str, domain: str) -> int:
+    lower = text.lower()
+    return sum(1 for s in _DOMAIN_SIGNALS[domain] if s in lower)
 
 
 def _detect_domains(text: str) -> list[str]:
@@ -67,6 +76,14 @@ class SupervisorAgent:
 
         domains = _detect_domains(user_message)
 
+        if len(domains) == 0:
+            # No domain detected — default to food (most common query type)
+            async for chunk in self._agents["food"].run(
+                user_message, conversation_history
+            ):
+                yield chunk
+            return
+
         if len(domains) == 1:
             async for chunk in self._agents[domains[0]].run(
                 user_message, conversation_history
@@ -74,8 +91,9 @@ class SupervisorAgent:
                 yield chunk
             return
 
-        # Cross-platform: dineout + food → dineout first, food in follow-up
-        if "dineout" in domains and "food" in domains:
+        # Multiple domains detected — use signal count to pick the dominant one
+        # Exception: dineout + food cross-platform → run dineout (booking) first
+        if "dineout" in domains and "food" in domains and "instamart" not in domains:
             yield "__AGENT__:dineout"
             async for chunk in self._agents["dineout"].run(
                 user_message, conversation_history
@@ -83,8 +101,9 @@ class SupervisorAgent:
                 yield chunk
             return
 
-        # Fallback: food agent (most common)
-        async for chunk in self._agents["food"].run(
+        # For all other multi-domain matches, route to the domain with most signals
+        dominant = max(domains, key=lambda d: _count_signals(user_message, d))
+        async for chunk in self._agents[dominant].run(
             user_message, conversation_history
         ):
             yield chunk

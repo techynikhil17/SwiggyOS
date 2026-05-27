@@ -219,7 +219,7 @@ INSTAMART_TOOLS = [
     {
         "name": "im_get_addresses",
         "server": "instamart",
-        "description": "Get user's saved addresses for Instamart delivery. Call before any Instamart tool needing addressId.",
+        "description": "Get user's saved addresses for Instamart delivery. Only call this when the next tool explicitly requires an addressId (im_your_go_to_items, im_search_products, im_update_cart, im_checkout). Do NOT call before im_get_cart, im_clear_cart, or im_get_orders — those need no address.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -292,7 +292,7 @@ INSTAMART_TOOLS = [
     {
         "name": "im_get_cart",
         "server": "instamart",
-        "description": "Get current Instamart cart contents, bill breakdown, and available payment methods.",
+        "description": "Get current Instamart cart contents, bill breakdown, and available payment methods. Takes NO parameters — call directly without im_get_addresses.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -326,7 +326,7 @@ INSTAMART_TOOLS = [
     {
         "name": "im_clear_cart",
         "server": "instamart",
-        "description": "Clear the entire Instamart cart. Use before switching delivery address.",
+        "description": "Clear the entire Instamart cart. Takes NO parameters — call directly without im_get_addresses. Use before switching delivery address.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -349,7 +349,7 @@ INSTAMART_TOOLS = [
     {
         "name": "im_get_orders",
         "server": "instamart",
-        "description": "Get Instamart order history (last 15 days). Use for idempotency check before retrying im_checkout.",
+        "description": "Get Instamart order history (last 15 days). Takes NO required parameters — call directly without im_get_addresses. Use for idempotency check before retrying im_checkout.",
         "input_schema": {
             "type": "object",
             "properties": {

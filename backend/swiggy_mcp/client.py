@@ -112,6 +112,11 @@ class SwiggyMCPClient:
                 raise MCPServerError(
                     f"{server_key}/{mcp_tool_name} server error: {msg}"
                 ) from exc
+            # Catch asyncio TaskGroup / connection errors (e.g. MCP server unreachable)
+            if "taskgroup" in msg.lower() or "sub-exception" in msg.lower() or "connect" in msg.lower():
+                raise MCPServerError(
+                    f"{server_key}/{mcp_tool_name}: Swiggy MCP server unreachable — no credentials or server down"
+                ) from exc
             raise
 
         content_blocks = [
