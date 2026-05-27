@@ -3,12 +3,60 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from typing import Any, AsyncGenerator
 
 from openai import AsyncOpenAI
 
 from auth.token_store import TokenExpiredError
 from swiggy_mcp.client import MCPServerError, SwiggyMCPClient
+
+# Detects when a small model writes tool-call JSON as plain text instead of
+# using the structured tool-calling API.
+_JSON_LEAK_RE = re.compile(
+    r'"(?:name|type|arguments|parameters|function|tool_calls)"\s*:'
+)
+_FALLBACK_MSG = (
+    "I wasn't able to complete that right now. "
+    "Please make sure your Swiggy account is connected and try again."
+)
+
+
+def _sanitize(text: str) -> str:
+    """
+    If the model leaked tool-call JSON as text (common with small models),
+    strip the JSON fragments and surface any natural-language sentence that
+    was buried with them. Falls back to a friendly error message if nothing
+    usable remains.
+    """
+    if not _JSON_LEAK_RE.search(text):
+        return text  # clean — nothing to do
+
+    # Step 1: remove all balanced {...} and [...] blocks via character scan
+    buf: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch in ('{', '['):
+            depth += 1
+        elif ch in ('}', ']'):
+            if depth > 0:
+                depth -= 1
+        elif depth == 0:
+            buf.append(ch)
+    cleaned = ''.join(buf)
+
+    # Step 2: remove leftover JSON key-value remnants like "key": "value" / "key": 123
+    cleaned = re.sub(r'"[a-zA-Z_][a-zA-Z0-9_]*"\s*:\s*(?:"[^"]*"|\d+\.?\d*|null|true|false)', '', cleaned)
+
+    # Step 3: strip JSON separators and normalise whitespace
+    cleaned = re.sub(r'[\[\]{};,]+', ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip().strip('"\'').strip()
+
+    # Step 4: return cleaned text if it contains enough natural language,
+    # otherwise return the friendly fallback
+    if len(cleaned) >= 20 and re.search(r'[a-zA-Z]{4,}', cleaned):
+        return cleaned
+    return _FALLBACK_MSG
 
 _CONFIRMATION_REQUIRED = {
     "place_food_order", "im_checkout", "book_table", "im_delete_address"
@@ -34,7 +82,7 @@ class BaseSwiggyAgent:
             api_key=os.environ["CEREBRAS_API_KEY"],
             base_url="https://api.cerebras.ai/v1",
         )
-        self._model = os.getenv("CEREBRAS_MODEL", "llama-3.1-8b")
+        self._model = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
         self._mcp = mcp_client
         self._user_context = user_context
 
@@ -66,9 +114,9 @@ class BaseSwiggyAgent:
                         model=self._model, messages=messages, stream=False
                     )
                     if final.choices[0].message.content:
-                        yield final.choices[0].message.content
+                        yield _sanitize(final.choices[0].message.content)
                 except Exception:
-                    yield "I've gathered the information. Please connect your Swiggy account to complete the request."
+                    yield _FALLBACK_MSG
                 break
 
             try:
@@ -89,9 +137,9 @@ class BaseSwiggyAgent:
                             model=self._model, messages=messages, stream=False
                         )
                         if fb.choices[0].message.content:
-                            yield fb.choices[0].message.content
+                            yield _sanitize(fb.choices[0].message.content)
                     except Exception:
-                        yield "Something went wrong. Please try again."
+                        yield _FALLBACK_MSG
                 else:
                     yield f"AI provider error: {exc}"
                 break
@@ -99,7 +147,7 @@ class BaseSwiggyAgent:
             msg = response.choices[0].message
             if not msg.tool_calls:
                 if msg.content:
-                    yield msg.content
+                    yield _sanitize(msg.content)
                 break
 
             messages.append({
@@ -189,11 +237,16 @@ class BaseSwiggyAgent:
     def _communication_rules(self) -> str:
         return """
 ## COMMUNICATION RULES — NEVER VIOLATE
-- NEVER include raw JSON, tool names, parameter names, error codes, or any internal API detail in your response text.
-- If a tool fails or returns an error, respond naturally: "I wasn't able to fetch that right now. Please make sure your Swiggy account is connected and try again."
-- NEVER say things like "I called get_addresses" or "the tool failed" or show JSON objects to the user.
-- NEVER expose addressId, spinId, restaurantId, slotId, or any internal identifier in your replies.
-- Respond as a friendly food assistant. If something can't be completed, explain it in plain English without technical details."""
+- NEVER output raw JSON in your reply. Not even a single { or }.
+- NEVER write things like {"name": "get_addresses", "arguments": {...}} — that is an internal detail.
+- NEVER write {"type": "function", "name": "...", "parameters": {...}} in your response.
+- NEVER mention tool names (get_addresses, im_get_cart, search_restaurants, etc.) to the user.
+- NEVER mention addressId, spinId, restaurantId, slotId, lat, lng, or any API parameter.
+- If a tool fails or is unavailable, say ONLY: "I wasn't able to fetch that right now. Please make sure your Swiggy account is connected and try again."
+- Your response must be plain conversational English only — no code, no JSON, no brackets.
+- BAD example (never do this): {"name": "im_your_go_to_items", "arguments": {"addressId": "12345"}}
+- GOOD example: "Here are your go-to grocery items: milk, eggs, bread."
+- If you cannot complete a task, say so in one friendly sentence and stop."""
 
     def _user_ctx(self) -> str:
         ctx = self._user_context
